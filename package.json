@@ -1,0 +1,36 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "copy-translations": "copyfiles -u 1 src/translations/**/*.json dist",
+    "build": "rimraf dist && tsc --watch && cp -r src/translations dist/translations",
+    "dev": "NODE_ENV=development nodemon --watch src --ext ts,json --exec ts-node src/index.ts",
+    "start": "NODE_ENV=production nodemon dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"Add tests\" && exit 0",
+    "sync-worker": "ts-node src/sync/calendarSyncWorker.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "mongoose": "^9.4.1",
+    "multer": "^2.1.1",
+    "nodemon": "^3.1.14"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^25.5.2",
+    "eslint": "^10.2.0",
+    "prettier": "^3.8.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^6.0.2"
+  }
+}
