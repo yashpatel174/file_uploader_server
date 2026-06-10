@@ -1,10 +1,13 @@
-import { Schema, model, Document, Types } from "mongoose";
+import { Document, Schema, Types, model } from "mongoose";
 
 export interface IFile extends Document {
   userId: Types.ObjectId;
+  platform: "dropbox" | "drive" | "ftp" | "sftp";
   fileName: string;
+  remoteFileId: string | null;
+  remotePath: string;
   sizeBytes: number;
-  path: string;
+  timeDuration: number;
   createdAt: Date;
 }
 
@@ -16,17 +19,30 @@ const fileSchema = new Schema<IFile>(
       required: true,
       index: true,
     },
+    platform: {
+      type: String,
+      enum: ["dropbox", "drive", "ftp", "sftp"],
+      required: true,
+      index: true,
+    },
     fileName: {
+      type: String,
+      required: true,
+    },
+    remoteFileId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    remotePath: {
       type: String,
       required: true,
     },
     sizeBytes: {
       type: Number,
-      required: true,
     },
-    path: {
-      type: String,
-      required: true,
+    timeDuration: {
+      type: Number,
     },
   },
   { timestamps: true },
@@ -34,5 +50,7 @@ const fileSchema = new Schema<IFile>(
 
 // Index for user file lookup
 fileSchema.index({ userId: 1, createdAt: -1 });
+fileSchema.index({ platform: 1, remoteFileId: 1 });
+fileSchema.index({ platform: 1, remotePath: 1 });
 
 export const FileModel = model<IFile>("File", fileSchema);

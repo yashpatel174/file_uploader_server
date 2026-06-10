@@ -1,2 +1,74 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build output
+dist/*
+build/*
+uploads
+uploads/*
+
+# Environment variables
 .env
-node_modules
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Runtime files
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Uploads / temp files
+uploads/
+tmp/
+temp/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.parcel-cache/
+
+# TypeScript
+*.tsbuildinfo
+
+# Optional npm cache
+.npm/
+
+# Optional yarn cache
+.yarn/
+
+# Docker
+docker-data/
+
+# SSL Certificates
+*.pem
+*.key
+*.crt
+
+# Local databases
+*.sqlite
+*.sqlite3
+
+# Misc
+*.tgz
