@@ -62,6 +62,7 @@ export const dropboxExchangeToken = async (req: Request, res: Response) => {
       { _id },
       {
         $set: {
+          dropboxAuthenticated: true,
           dropboxAppKey: appKey,
           dropboxSecretKey: appSecret,
           dropboxAccountId: account_id,

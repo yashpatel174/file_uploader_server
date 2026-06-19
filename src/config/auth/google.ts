@@ -45,6 +45,7 @@ export const connectGoogle = async (req: Request, res: Response) => {
     { _id },
     {
       $set: {
+        googleAuthenticated: true,
         googleClientId: clientId,
         googleClientSecret: clientSecretKey,
         googleAccessToken: tokens.access_token,

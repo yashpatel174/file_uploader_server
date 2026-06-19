@@ -75,9 +75,7 @@ export const uploadFileController = async (req: Request, res: Response) => {
     if (!_id) return errorHandler(res, "User ID is required");
     if (!unit) return errorHandler(res, "File Unit is required");
     if (!file) return errorHandler(res, "File is required");
-    if (!platform) {
-      return errorHandler(res, "File upload location is required");
-    }
+    if (!platform) return errorHandler(res, "File upload location is required");
 
     let dbPopulation = "";
     if (platform === "drive") {
@@ -109,19 +107,40 @@ export const uploadFileController = async (req: Request, res: Response) => {
 
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
-    const users = await UserModel.find(
-      { role: "user" },
-      {
-        userName: 1,
-        totalSizeBytes: 1,
-        consumeSizeBytes: 1,
-        totalTime: 1,
-        consumedTime: 1,
-        unit: 1,
-      },
-    )
-      .lean()
-      .exec();
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+
+    const skip = (page - 1) * limit;
+
+    const [users, total, dropdown] = await Promise.all([
+      UserModel.find(
+        { role: "user" },
+        {
+          userName: 1,
+          totalSizeBytes: 1,
+          consumeSizeBytes: 1,
+          totalTime: 1,
+          consumedTime: 1,
+          unit: 1,
+        },
+      )
+        .select("-password")
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 })
+        .lean(),
+      UserModel.countDocuments({ role: "user" }),
+      UserModel.find(
+        { role: "user" },
+        {
+          userName: 1,
+          unit: 1,
+          googleAuthenticated: 1,
+          dropboxAuthenticated: 1,
+        },
+      ).lean(),
+    ]);
+
     if (!users || users.length === 0) {
       return errorHandler(res, "Users not available.");
     }
@@ -167,7 +186,16 @@ export const getAllUsers = async (req: Request, res: Response) => {
         totalDocuments: countMap.get(user._id.toString()) ?? 0,
       };
     });
-    return successHandler(res, "Users fetched successfully", transformedUsers);
+    return successHandler(res, "Users fetched successfully", {
+      transformedUsers,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+      dropdown,
+    });
   } catch (error) {
     return errorHandler(res, (error as Error).message);
   }
@@ -264,8 +292,9 @@ export const getAudioAccess = async (req: Request, res: Response) => {
     );
     if (!getFile) return errorHandler(res, "File not found");
 
-    const { dropboxRefreshToken, dropboxSecretKey, dropboxAppKey }: any =
-      getFile.userId;
+    const {
+      userId: { dropboxRefreshToken, dropboxSecretKey, dropboxAppKey },
+    }: any = getFile;
 
     const { userId, platform, remoteFileId, remotePath } = getFile as any;
     const {
@@ -330,9 +359,7 @@ export const getAudioAccess = async (req: Request, res: Response) => {
 
       const file = await client.get(remotePath);
 
-      if (Buffer.isBuffer(file)) {
-        res.send(file);
-      }
+      if (Buffer.isBuffer(file)) res.send(file);
       await client.end();
     }
   } catch (error) {
@@ -435,6 +462,69 @@ export const deleteUser = async (req: Request, res: Response) => {
     }
 
     return successHandler(res, "User deleted successfully", deleteUser._id);
+  } catch (error) {
+    return errorHandler(res, (error as Error).message);
+  }
+};
+
+export const authConnection = async (req: Request, res: Response) => {
+  try {
+    const { platform, _id } = req.params;
+
+    let populate: string;
+
+    if (platform === "drive") {
+      populate =
+        "googleClientId googleClientSecret googleRefreshTokenEnc googleAccessTokenExpiry";
+    } else if (platform === "dropbox") {
+      populate = "dropboxRefreshToken dropboxAppKey dropboxSecretKey";
+    }
+
+    const user = await UserModel.findById(_id).select(populate!).lean().exec();
+    if (!user) return errorHandler(res, "User not found");
+
+    if (platform === "dropbox") {
+      const { dropboxRefreshToken, dropboxAppKey, dropboxSecretKey } = user;
+      const accessToken: string = await refreshDropboxToken(
+        dropboxRefreshToken,
+        dropboxAppKey!,
+        dropboxSecretKey!,
+      );
+      const updatedToken = await UserModel.findByIdAndUpdate(_id, {
+        dropboxAccessToken: accessToken!,
+      });
+      if (!updatedToken) {
+        return errorHandler(res, "Error while updating access token");
+      }
+      return successHandler(
+        res,
+        "Dropbox authenticated successfully",
+        platform,
+      );
+    } else if (platform === "drive") {
+      const {
+        googleClientId,
+        googleClientSecret,
+        googleRefreshTokenEnc,
+        googleAccessTokenExpiry,
+      } = user;
+      const tokenData = await getValidGoogleAccessToken(
+        googleClientId,
+        googleClientSecret,
+        googleRefreshTokenEnc,
+        googleAccessTokenExpiry,
+      );
+      const updatedToken = await UserModel.findByIdAndUpdate(_id, {
+        googleAccessToken: tokenData.accessToken,
+        googleAccessTokenExpiry: tokenData.expiryDate
+          ? new Date(tokenData.expiryDate)
+          : new Date(Date.now() + 3500 * 1000),
+      });
+      if (!updatedToken) {
+        return errorHandler(res, "Error while updating access token");
+      }
+      return successHandler(res, "Google authenticated successfully", platform);
+    }
   } catch (error) {
     return errorHandler(res, (error as Error).message);
   }

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { dropboxAuth, dropboxExchangeToken } from "../config/auth/dropbox";
 import { connectGoogle } from "../config/auth/google";
 import {
+  authConnection,
   createAdmin,
   createUser,
   deleteUser,
@@ -25,5 +26,6 @@ router.post("/upload", upload.single("file"), uploadFileController);
 router.get("/audio/:_id", getAllAudio);
 router.get("/api/files/:fileId/stream", getAudioAccess);
 router.delete("/:_id", deleteUser);
+router.get("/auth/:platform/connection/:_id", authConnection);
 
 export default router;

@@ -1,8 +1,13 @@
-import fs from "fs/promises";
 import axios from "axios";
+import type { files } from "dropbox";
 import { Dropbox } from "dropbox";
-import { ENV } from "../config/env";
 import { Response } from "express";
+import fs from "fs/promises";
+import { ENV } from "../config/env";
+
+type DropboxDownloadResult = files.FileMetadata & {
+  fileBinary: Buffer;
+};
 
 export const dropbox_platform = async (user: any, file: any) => {
   try {
@@ -13,7 +18,9 @@ export const dropbox_platform = async (user: any, file: any) => {
     const dropboxPath = `/Audio/${fileName}`;
     const fileBuffer = await fs.readFile(file.path);
 
-    const uploadedFile = await dbx.filesUpload({
+    const {
+      result: { name, id, path_display },
+    } = await dbx.filesUpload({
       path: dropboxPath,
       contents: fileBuffer,
       autorename: true,
@@ -22,10 +29,11 @@ export const dropbox_platform = async (user: any, file: any) => {
       },
       mute: false,
     });
+
     const fileData = {
-      fileName: uploadedFile.result.name,
-      remoteFileId: uploadedFile.result.id,
-      remotePath: uploadedFile.result.path_display,
+      fileName: name,
+      remoteFileId: id,
+      remotePath: path_display,
     };
     return { fileData, message: "File Uploaded successfully on Dropbox" };
   } catch (error) {
@@ -71,7 +79,10 @@ export const dropboxAccess = async (
     path: remoteFileId,
   });
 
-  const buffer = (await dropboxResponse.result.fileBinary) as any;
+  const { fileBinary } =
+    dropboxResponse.result as unknown as DropboxDownloadResult;
+
+  const buffer: Buffer = fileBinary;
   res.setHeader("Content-Type", "audio/mpeg");
   res.setHeader(
     "Content-Disposition",

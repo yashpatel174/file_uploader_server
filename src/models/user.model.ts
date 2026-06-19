@@ -16,11 +16,13 @@ export interface IUser extends Document {
   googleAccessToken: string;
   googleAccessTokenExpiry: Date;
   googleRefreshTokenEnc: string;
+  googleAuthenticated: boolean;
   dropboxAppKey: string;
   dropboxSecretKey: string;
   dropboxAccountId: string;
   dropboxAccessToken: string;
   dropboxRefreshToken: string;
+  dropboxAuthenticated: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -94,6 +96,10 @@ const userSchema = new Schema<IUser>(
       select: false,
       default: null,
     },
+    googleAuthenticated: {
+      type: Boolean,
+      default: false,
+    },
     dropboxAppKey: {
       type: String,
       select: false,
@@ -118,6 +124,10 @@ const userSchema = new Schema<IUser>(
       type: String,
       select: false,
       default: null,
+    },
+    dropboxAuthenticated: {
+      type: Boolean,
+      default: false,
     },
   },
   {

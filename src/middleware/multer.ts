@@ -32,16 +32,12 @@ const getUploadDir = () => {
 
 const ensureDirExists = (dirPath: string) => {
   const existingPromise = dirCreationCache.get(dirPath);
-  if (existingPromise) {
-    return existingPromise;
-  }
+  if (existingPromise) return existingPromise;
 
   const creationPromise = fs.promises
     .mkdir(dirPath, { recursive: true })
     .then(() => undefined)
-    .finally(() => {
-      dirCreationCache.delete(dirPath);
-    });
+    .finally(() => dirCreationCache.delete(dirPath));
 
   dirCreationCache.set(dirPath, creationPromise);
   return creationPromise;
