@@ -6,8 +6,12 @@ export const isValidStorageSize = (
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 };
 
-export const errorHandler = (res: Response, message: string) => {
-  res.status(400).send({
+export const errorHandler = (
+  res: Response,
+  message: string,
+  code: number = 400,
+) => {
+  res.status(code).send({
     success: false,
     message,
   });

@@ -1,11 +1,16 @@
 import { Client } from "basic-ftp";
+import bcrypt from "bcrypt";
 import { Request, Response } from "express";
-import { Types } from "mongoose";
+import jwt, { JwtPayload } from "jsonwebtoken";
+import mongoose, { Types } from "mongoose";
 import SftpClient from "ssh2-sftp-client";
 import { PassThrough } from "stream";
 import { getValidGoogleAccessToken } from "../config/auth/google";
 import { ENV } from "../config/env";
+import { privateKey, publicKey } from "../config/keys/auth_config";
+import { AuthRequest } from "../middleware/authMiddleware";
 import { FileModel } from "../models/file.model";
+import { TokenModel } from "../models/token.model";
 import { UserModel } from "../models/user.model";
 import { deleteFileByPlatform, DeleteFilePayload } from "../services/common";
 import { dropboxAccess, refreshDropboxToken } from "../services/dropbox";
@@ -22,16 +27,193 @@ export const createAdmin = async (req: Request, res: Response) => {
     const admin = await UserModel.findOne({ role: "admin" });
     if (admin) return errorHandler(res, "Admin already exists");
 
+    const hashedPassword = await bcrypt.hash("Admin@123", 12);
+
     const newAdmin = new UserModel({
       userName: "admin_123",
+      password: hashedPassword,
       role: "admin",
+      unit: "time",
       totalSizeBytes: 0,
     });
     await newAdmin.save();
 
-    return successHandler(res, "Admin created successfully", newAdmin);
+    return successHandler(res, "Admin created successfully");
   } catch (error) {
     return errorHandler(res, (error as Error).message);
+  }
+};
+
+export const loginUser = async (req: Request, res: Response) => {
+  try {
+    const { userName, password } = req.body;
+    if (!userName) return errorHandler(res, "Username is required");
+    if (!password) return errorHandler(res, "Password is required");
+
+    const user = await UserModel.findOne(
+      { userName },
+      { password: 1, role: 1 },
+    );
+    if (!user) return errorHandler(res, "User not found");
+
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) return errorHandler(res, "Password is incorrect");
+
+    const accessToken = jwt.sign(
+      {
+        sub: user._id.toString(),
+        role: user.role,
+        type: "access",
+      },
+      privateKey,
+      {
+        algorithm: "RS256",
+        expiresIn: "1m",
+      },
+    );
+    if (!accessToken) {
+      return errorHandler(res, "Error while generating accessToken");
+    }
+
+    const refreshToken = jwt.sign(
+      {
+        sub: user._id.toString(),
+        type: "refresh",
+      },
+      privateKey,
+      {
+        algorithm: "RS256",
+        expiresIn: "7d",
+      },
+    );
+    if (!refreshToken) {
+      return errorHandler(res, "Error while generating refreshToken");
+    }
+
+    const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const newToken = new TokenModel({
+      userId: user._id,
+      refreshToken: refreshTokenHash,
+      expiresAt,
+    });
+    if (!newToken) return errorHandler(res, "Error while storing tokens");
+    await newToken.save();
+
+    const activeuser = await UserModel.findByIdAndUpdate(user._id, {
+      isActive: true,
+    });
+    if (!activeuser) return errorHandler(res, "Error while logging in");
+
+    return successHandler(res, "Logged in successfully!", {
+      accessToken,
+      refreshToken,
+    });
+  } catch (error) {
+    return errorHandler(res, (error as Error).message);
+  }
+};
+
+export const refreshAccessToken = async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) return errorHandler(res, "Refresh token is required");
+
+    const { type, sub } = jwt.verify(refreshToken, publicKey, {
+      algorithms: ["RS256"],
+    }) as JwtPayload;
+    if (!sub) return errorHandler(res, "Invalid token");
+
+    if (type !== "refresh") {
+      return errorHandler(res, "Invalid refresh token");
+    }
+
+    const tokenDoc = await TokenModel.findOne(
+      {
+        userId: sub,
+      },
+      { refreshToken: 1 },
+    )
+      .select("-_id")
+      .lean();
+    if (!tokenDoc) return errorHandler(res, "Refresh token not found");
+
+    const isMatch = await bcrypt.compare(refreshToken, tokenDoc.refreshToken);
+    if (!isMatch) return errorHandler(res, "Refresh token mismatch");
+
+    const user = await UserModel.findById(sub, {
+      role: 1,
+    });
+    if (!user) return errorHandler(res, "User not found");
+
+    const newAccessToken = jwt.sign(
+      {
+        sub: user._id.toString(),
+        role: user.role,
+        type: "access",
+      },
+      privateKey,
+      {
+        algorithm: "RS256",
+        expiresIn: "1m",
+      },
+    );
+
+    return successHandler(res, "Access token refreshed", {
+      accessToken: newAccessToken,
+    });
+  } catch (error) {
+    return errorHandler(res, "Refresh token expired");
+  }
+};
+
+export const userLogout = async (req: AuthRequest, res: Response) => {
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
+    const userId = req?.user?.id;
+    if (!userId) {
+      await session.abortTransaction();
+      return errorHandler(res, "User Id is required");
+    }
+
+    const user = await UserModel.findOne({ _id: userId, isActive: true });
+    if (!user) return errorHandler(res, "User not found");
+
+    const token = await TokenModel.find({ userId });
+    if (!token || token.length === 0) {
+      return errorHandler(res, "User is inactive");
+    }
+
+    const deleteResult = await TokenModel.findOneAndDelete(
+      { userId },
+      { session },
+    );
+    if (!deleteResult) {
+      await session.abortTransaction();
+      return errorHandler(res, "Error while deleting token.");
+    }
+
+    const inactiveUser = await UserModel.findByIdAndUpdate(
+      userId,
+      {
+        isActive: false,
+      },
+      { session },
+    );
+    if (!inactiveUser) {
+      await session.abortTransaction();
+      return errorHandler(res, "Error while updating user status.");
+    }
+
+    await session.commitTransaction();
+    return successHandler(res, "User Logged out successfully");
+  } catch {
+    await session.abortTransaction();
+    return errorHandler(res, "Refresh token expired");
+  } finally {
+    await session.endSession();
   }
 };
 

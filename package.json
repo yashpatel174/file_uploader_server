@@ -15,12 +15,14 @@
   "dependencies": {
     "axios": "^1.17.0",
     "basic-ftp": "^6.0.1",
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.1",
     "dropbox": "^10.34.0",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "googleapis": "^173.0.0",
+    "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.4.1",
     "multer": "^2.1.1",
     "music-metadata": "^11.12.3",
@@ -28,8 +30,10 @@
     "ssh2-sftp-client": "^12.1.1"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.5.2",
     "@types/ssh2-sftp-client": "^9.0.6",

@@ -72,3 +72,4 @@ docker-data/
 
 # Misc
 *.tgz
+*.keys/

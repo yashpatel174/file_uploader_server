@@ -5,6 +5,8 @@ export type UnitInterface = "size" | "time";
 
 export interface IUser extends Document {
   userName: string;
+  password: string;
+  isActive: boolean;
   role: UserRole;
   unit: UnitInterface;
   totalSizeBytes: number; // max allowed storage
@@ -35,6 +37,17 @@ const userSchema = new Schema<IUser>(
       unique: true,
       trim: true,
       index: true,
+    },
+    password: {
+      type: String,
+      required: true,
+      trim: true,
+      select: false,
+    },
+    isActive: {
+      type: Boolean,
+      required: true,
+      default: false,
     },
     role: {
       type: String,
