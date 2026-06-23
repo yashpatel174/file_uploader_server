@@ -21,6 +21,7 @@ import {
   isValidStorageSize,
   successHandler,
 } from "../utils/responseHandler";
+import { hashToken } from "../utils/token";
 
 export const createAdmin = async (req: Request, res: Response) => {
   try {
@@ -51,7 +52,7 @@ export const loginUser = async (req: Request, res: Response) => {
     if (!password) return errorHandler(res, "Password is required");
 
     const user = await UserModel.findOne(
-      { userName },
+      { userName, role: "admin" },
       { password: 1, role: 1 },
     );
     if (!user) return errorHandler(res, "User not found");
@@ -68,9 +69,10 @@ export const loginUser = async (req: Request, res: Response) => {
       privateKey,
       {
         algorithm: "RS256",
-        expiresIn: "1m",
+        expiresIn: "1h",
       },
     );
+
     if (!accessToken) {
       return errorHandler(res, "Error while generating accessToken");
     }
@@ -86,16 +88,17 @@ export const loginUser = async (req: Request, res: Response) => {
         expiresIn: "7d",
       },
     );
+
     if (!refreshToken) {
       return errorHandler(res, "Error while generating refreshToken");
     }
 
-    const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+    const tokenHash = hashToken(refreshToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     const newToken = new TokenModel({
       userId: user._id,
-      refreshToken: refreshTokenHash,
+      refreshToken: tokenHash,
       expiresAt,
     });
     if (!newToken) return errorHandler(res, "Error while storing tokens");
@@ -104,8 +107,8 @@ export const loginUser = async (req: Request, res: Response) => {
     const activeuser = await UserModel.findByIdAndUpdate(user._id, {
       isActive: true,
     });
-    if (!activeuser) return errorHandler(res, "Error while logging in");
 
+    if (!activeuser) return errorHandler(res, "Error while logging in");
     return successHandler(res, "Logged in successfully!", {
       accessToken,
       refreshToken,
@@ -129,9 +132,10 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
       return errorHandler(res, "Invalid refresh token");
     }
 
+    const tokenHash = hashToken(refreshToken);
     const tokenDoc = await TokenModel.findOne(
       {
-        userId: sub,
+        refreshToken: tokenHash,
       },
       { refreshToken: 1 },
     )
@@ -139,24 +143,19 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
       .lean();
     if (!tokenDoc) return errorHandler(res, "Refresh token not found");
 
-    const isMatch = await bcrypt.compare(refreshToken, tokenDoc.refreshToken);
-    if (!isMatch) return errorHandler(res, "Refresh token mismatch");
-
-    const user = await UserModel.findById(sub, {
-      role: 1,
-    });
-    if (!user) return errorHandler(res, "User not found");
+    const user = await UserModel.findById(sub, { role: 1 }).lean();
+    if (!user) throw new Error("User not found");
 
     const newAccessToken = jwt.sign(
       {
-        sub: user._id.toString(),
+        sub,
         role: user.role,
         type: "access",
       },
       privateKey,
       {
         algorithm: "RS256",
-        expiresIn: "1m",
+        expiresIn: "1h",
       },
     );
 
