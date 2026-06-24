@@ -179,7 +179,7 @@ export const uploadFileService = async ({
         data = await uploadFileToCloud(
           platform,
           file.path,
-          `/Audio/${file.originalname}`,
+          `/Audio/${Date.now()}-${file.originalname}`,
           {
             host: ENV.sftp_host,
             port: port as number,

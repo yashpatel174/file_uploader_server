@@ -52,8 +52,8 @@ export const deleteFromSFTP = async (remotePath: string): Promise<void> => {
       username: ENV.sftp_username!,
       password: ENV.sftp_password!,
     });
-
-    await sftp.delete(remotePath);
+    const exists = await sftp.exists(remotePath);
+    if (exists) await sftp.delete(remotePath);
   } finally {
     await sftp.end();
   }

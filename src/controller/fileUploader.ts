@@ -169,48 +169,36 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
 
 export const userLogout = async (req: AuthRequest, res: Response) => {
   const session = await mongoose.startSession();
+
   try {
+    const userId = req.user?.id;
+    if (!userId) return errorHandler(res, "User Id is required");
+
     session.startTransaction();
-    const userId = req?.user?.id;
-    if (!userId) {
+
+    const deleteToken = await TokenModel.deleteMany({ userId }, { session });
+    if (deleteToken.deletedCount === 0) {
       await session.abortTransaction();
-      return errorHandler(res, "User Id is required");
+      return errorHandler(res, "User is already logged out");
     }
 
-    const user = await UserModel.findOne({ _id: userId, isActive: true });
-    if (!user) return errorHandler(res, "User not found");
-
-    const token = await TokenModel.find({ userId });
-    if (!token || token.length === 0) {
-      return errorHandler(res, "User is inactive");
-    }
-
-    const deleteResult = await TokenModel.findOneAndDelete(
-      { userId },
+    const userActive = await UserModel.updateOne(
+      { _id: userId, isActive: true },
+      { $set: { isActive: false } },
       { session },
     );
-    if (!deleteResult) {
+    if (userActive.modifiedCount === 0) {
       await session.abortTransaction();
-      return errorHandler(res, "Error while deleting token.");
-    }
-
-    const inactiveUser = await UserModel.findByIdAndUpdate(
-      userId,
-      {
-        isActive: false,
-      },
-      { session },
-    );
-    if (!inactiveUser) {
-      await session.abortTransaction();
-      return errorHandler(res, "Error while updating user status.");
+      return errorHandler(res, "User is already logged out");
     }
 
     await session.commitTransaction();
-    return successHandler(res, "User Logged out successfully");
-  } catch {
-    await session.abortTransaction();
-    return errorHandler(res, "Refresh token expired");
+    return successHandler(res, "User logged out successfully");
+  } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    return errorHandler(res, (error as Error).message);
   } finally {
     await session.endSession();
   }
@@ -613,36 +601,44 @@ export const deleteUser = async (req: Request, res: Response) => {
       );
     }
 
-    files?.map(async (f) => {
-      const file = f as DeleteFilePayload;
-      (await deleteFileByPlatform({
-        file,
-        clientId: isDrive ? (googleClientId as string) : "",
-        clientSecretKey: isDrive ? (googleClientSecret as string) : "",
-        accessToken: tokenData
-          ? tokenData.accessToken!
-          : (googleAccessToken as string),
-        refreshToken: isDropbox ? (dropboxRefreshToken as string) : "",
-        appKey: isDropbox ? (dropboxAppKey as string) : "",
-        appSecret: isDropbox ? (dropboxSecretKey as string) : "",
-      })) as any;
-    });
+    const results = await Promise.allSettled(
+      files.map((f) => {
+        const file = f as DeleteFilePayload;
 
-    if (files.length) {
-      const deleteAllFiles = await FileModel.deleteMany({
-        userId: user ? user._id : _id,
-      });
-      if (!deleteAllFiles) {
-        return errorHandler(res, "Error while deleting files collection");
-      }
+        return deleteFileByPlatform({
+          file,
+          clientId: isDrive ? googleClientId! : "",
+          clientSecretKey: isDrive ? googleClientSecret! : "",
+          accessToken: tokenData ? tokenData.accessToken : googleAccessToken!,
+          refreshToken: isDropbox ? dropboxRefreshToken! : "",
+          appKey: isDropbox ? dropboxAppKey! : "",
+          appSecret: isDropbox ? dropboxSecretKey! : "",
+        });
+      }),
+    );
+
+    const failed = results.filter((r) => r.status === "rejected");
+    if (failed.length) {
+      console.error(
+        "Cloud file deletion failures:",
+        failed.map((f) => (f as PromiseRejectedResult).reason),
+      );
     }
 
-    const deleteUser = await UserModel.findByIdAndDelete(_id);
-    if (!deleteUser) {
-      return errorHandler(res, "Error while deleting files collection");
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+      await FileModel.deleteMany({ userId: _id }, { session });
+      await UserModel.findByIdAndDelete(_id, { session });
+      await session.commitTransaction();
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      session.endSession();
     }
 
-    return successHandler(res, "User deleted successfully", deleteUser._id);
+    return successHandler(res, "User deleted successfully");
   } catch (error) {
     return errorHandler(res, (error as Error).message);
   }

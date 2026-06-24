@@ -52,13 +52,24 @@ export const deleteFromFTP = async (remotePath: string): Promise<void> => {
       user: ENV.sftp_username,
       password: ENV.sftp_password,
     });
-
+    await client.size(remotePath);
     await client.remove(remotePath);
   } catch (e) {
+    const message = (e as Error)?.message ?? "";
+
+    if (
+      message.includes("550") || // FTP file not found
+      message.toLowerCase().includes("not found")
+    ) {
+      return;
+    }
+
     console.log(
       "Error while deleting data from ftp cloud =>",
       (e as Error).message,
     );
+
+    throw e;
   } finally {
     client.close();
   }

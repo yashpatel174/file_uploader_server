@@ -1,7 +1,7 @@
-import { Request, Response, NextFunction } from "express";
+import { NextFunction, Request, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
-import { errorHandler } from "../utils/responseHandler";
 import { publicKey } from "../config/keys/auth_config";
+import { errorHandler } from "../utils/responseHandler";
 
 export interface AuthRequest extends Request {
   user?: {
@@ -11,16 +11,13 @@ export interface AuthRequest extends Request {
 }
 
 export const authenticate = (
-  req: Request,
+  req: AuthRequest,
   res: Response,
   next: NextFunction,
 ) => {
   try {
     const authHeader = req.headers.authorization;
-
-    if (!authHeader) {
-      return errorHandler(res, "Authorization required");
-    }
+    if (!authHeader) return errorHandler(res, "Authorization required");
 
     const token = authHeader.replace("Bearer ", "");
 
