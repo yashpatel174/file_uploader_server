@@ -16,4 +16,9 @@ export const ENV = {
   dropbox_redirect_url: process.env.DROPBOX_REDIRECT_URI,
   dropbox_auth_url: process.env.DROPBOX_AUTH_URL,
   dropbox_token: process.env.DROPBOX_TOKEN,
+  email_host: process.env.SMTP_HOST as string,
+  email_port: Number(process.env.SMTP_PORT),
+  email_user: process.env.SMTP_USER as string,
+  email_password: process.env.SMTP_PASSWORD as string,
+  smtp_from: process.env.SMTP_FROM as string,
 };

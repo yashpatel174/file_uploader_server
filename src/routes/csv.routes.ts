@@ -19,7 +19,7 @@ import { upload } from "../middleware/multer";
 import { authenticate, authorize } from "../middleware/authMiddleware";
 const router = Router();
 
-router.post("/admin/create", createAdmin);
+router.get("/admin/create", createAdmin);
 router.post("/admin/login", loginUser);
 router.post("/admin/logout", authenticate, authorize("admin"), userLogout);
 router.post("/auth/refresh", refreshAccessToken);

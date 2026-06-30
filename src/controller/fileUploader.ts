@@ -31,11 +31,14 @@ export const createAdmin = async (req: Request, res: Response) => {
     const hashedPassword = await bcrypt.hash("Admin@123", 12);
 
     const newAdmin = new UserModel({
+      email: "admin@gmail.com",
       userName: "admin_123",
       password: hashedPassword,
       role: "admin",
       unit: "time",
       totalSizeBytes: 0,
+      consumedTimePercent: 0,
+      consumedSizePercent: 0,
     });
     await newAdmin.save();
 
@@ -206,12 +209,30 @@ export const userLogout = async (req: AuthRequest, res: Response) => {
 
 export const createUser = async (req: Request, res: Response) => {
   try {
-    const { userName, totalSizeBytes, unit, totalTime } = req.body;
+    const { userName, email, totalSizeBytes, unit, totalTime } = req.body;
     if (!userName) return errorHandler(res, "Username is required");
+    if (!email) return errorHandler(res, "Email is required");
     if (!unit) return errorHandler(res, "Unit is required");
 
-    const existingUser = await UserModel.findOne({ userName, role: "user" });
-    if (existingUser) return errorHandler(res, "User already exist");
+    // const existingUser = await UserModel.findOne({ userName, role: "user" });
+    const existingUser = await UserModel.findOne({
+      $or: [{ userName }, { email }],
+      role: "user",
+    }).select("email userName");
+
+    if (existingUser) {
+      if (existingUser.userName === userName && existingUser.email === email) {
+        return errorHandler(res, "Username and email already exist");
+      }
+
+      if (existingUser.userName === userName) {
+        return errorHandler(res, "Username already exists");
+      }
+
+      if (existingUser.email === email) {
+        return errorHandler(res, "Email already exists");
+      }
+    }
 
     let newUser: any = "";
 
@@ -220,17 +241,37 @@ export const createUser = async (req: Request, res: Response) => {
         return errorHandler(res, "Total Size must be a non-negative number");
       }
 
-      newUser = new UserModel({ userName, role: "user", totalSizeBytes, unit });
+      newUser = new UserModel({
+        userName,
+        role: "user",
+        totalSizeBytes,
+        unit,
+        email,
+        consumedTimePercent: 0,
+        consumedSizePercent: 0,
+      });
     } else if (unit === "time") {
       if (!isValidStorageSize(totalTime)) {
         return errorHandler(res, "Total Time must be a non-negative number");
       }
 
-      newUser = new UserModel({ userName, role: "user", totalTime, unit });
+      newUser = new UserModel({
+        userName,
+        role: "user",
+        totalTime,
+        unit,
+        email,
+        consumedTimePercent: 0,
+        consumedSizePercent: 0,
+      });
     }
     await newUser.save();
 
-    return successHandler(res, "User created successfully", newUser);
+    return successHandler(res, "User created successfully", {
+      userName: newUser.userName,
+      role: newUser.role,
+      unit: newUser.unit,
+    });
   } catch (error) {
     return errorHandler(res, (error as Error).message);
   }
@@ -248,9 +289,10 @@ export const uploadFileController = async (req: Request, res: Response) => {
 
     let dbPopulation = "";
     if (platform === "drive") {
-      dbPopulation = "googleClientId googleClientSecret googleAccessToken role";
+      dbPopulation =
+        "googleClientId googleClientSecret googleAccessToken role email userName";
     } else if (platform === "dropbox") {
-      dbPopulation = "dropboxAccessToken role";
+      dbPopulation = "dropboxAccessToken role email userName";
     }
 
     const user = await UserModel.findById(_id).select(dbPopulation).lean();
@@ -281,7 +323,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
 
     const skip = (page - 1) * limit;
 
-    const [users, total, dropdown] = await Promise.all([
+    const [users, total] = await Promise.all([
       UserModel.find(
         { role: "user" },
         {
@@ -291,6 +333,11 @@ export const getAllUsers = async (req: Request, res: Response) => {
           totalTime: 1,
           consumedTime: 1,
           unit: 1,
+          email: 1,
+          consumedTimePercent: 1,
+          consumedSizePercent: 1,
+          googleAuthenticated: 1,
+          dropboxAuthenticated: 1,
         },
       )
         .select("-password")
@@ -299,15 +346,6 @@ export const getAllUsers = async (req: Request, res: Response) => {
         .sort({ createdAt: -1 })
         .lean(),
       UserModel.countDocuments({ role: "user" }),
-      UserModel.find(
-        { role: "user" },
-        {
-          userName: 1,
-          unit: 1,
-          googleAuthenticated: 1,
-          dropboxAuthenticated: 1,
-        },
-      ).lean(),
     ]);
 
     if (!users || users.length === 0) {
@@ -330,6 +368,8 @@ export const getAllUsers = async (req: Request, res: Response) => {
       countMap.set(item._id.toString(), item.totalDocuments);
     }
 
+    const dropdown: any = [];
+
     const transformedUsers = users.map((user) => {
       const totalBytes = user.totalSizeBytes;
       const totalTime = user.totalTime;
@@ -338,9 +378,26 @@ export const getAllUsers = async (req: Request, res: Response) => {
       const availableBytes = Math.max(0, totalBytes - consumedBytes);
       const availableTime = Math.max(0, totalTime - consumedTime);
 
+      dropdown.push({
+        _id: user._id.toString(),
+        userName: user.userName,
+        unit: user.unit,
+        googleAuthenticated: user.googleAuthenticated,
+        dropboxAuthenticated: user.dropboxAuthenticated,
+        size: {
+          total: totalBytes,
+          consumed: consumedBytes,
+        },
+        time: {
+          total: totalTime,
+          consumed: consumedTime,
+        },
+      });
+
       return {
         _id: user._id.toString(),
         userName: user.userName,
+        email: user.email,
         unit: user.unit,
         size: {
           total: totalBytes,
@@ -353,8 +410,11 @@ export const getAllUsers = async (req: Request, res: Response) => {
           available: availableTime,
         },
         totalDocuments: countMap.get(user._id.toString()) ?? 0,
+        consumedTimePercent: user.consumedTimePercent,
+        consumedSizePercent: user.consumedSizePercent,
       };
     });
+
     return successHandler(res, "Users fetched successfully", {
       transformedUsers,
       pagination: {
@@ -391,14 +451,61 @@ export const updateUserAccess = async (req: Request, res: Response) => {
 
     const updatedUser = await UserModel.findByIdAndUpdate(
       _id,
-      {
-        $set:
-          unit === "size"
-            ? { totalSizeBytes: newValue, unit }
-            : { totalTime: newValue, unit },
-      },
+      [
+        {
+          $set:
+            unit === "size"
+              ? {
+                  totalSizeBytes: newValue,
+                  unit,
+                  consumedSizePercent: {
+                    $round: [
+                      {
+                        $cond: [
+                          { $gt: [newValue, 0] },
+                          {
+                            $multiply: [
+                              {
+                                $divide: ["$consumeSizeBytes", newValue],
+                              },
+                              100,
+                            ],
+                          },
+                          0,
+                        ],
+                      },
+                      2,
+                    ],
+                  },
+                }
+              : {
+                  totalTime: newValue,
+                  unit,
+                  consumedTimePercent: {
+                    $round: [
+                      {
+                        $cond: [
+                          { $gt: [newValue, 0] },
+                          {
+                            $multiply: [
+                              {
+                                $divide: ["$consumedTime", newValue],
+                              },
+                              100,
+                            ],
+                          },
+                          0,
+                        ],
+                      },
+                      2,
+                    ],
+                  },
+                },
+        },
+      ],
       {
         returnDocument: "after",
+        updatePipeline: true,
         runValidators: true,
       },
     );
@@ -706,3 +813,5 @@ export const authConnection = async (req: Request, res: Response) => {
     return errorHandler(res, (error as Error).message);
   }
 };
+
+// compareInPercentage("6a436b7bb106ddc2bfee59d2", "size", 15);

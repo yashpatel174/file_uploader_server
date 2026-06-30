@@ -4,11 +4,14 @@ export type UserRole = "admin" | "user";
 export type UnitInterface = "size" | "time";
 
 export interface IUser extends Document {
+  email: string;
   userName: string;
   password: string;
   isActive: boolean;
   role: UserRole;
   unit: UnitInterface;
+  consumedTimePercent: number;
+  consumedSizePercent: number;
   totalSizeBytes: number; // max allowed storage
   consumeSizeBytes: number; // used storage
   totalTime: number;
@@ -31,6 +34,11 @@ export interface IUser extends Document {
 
 const userSchema = new Schema<IUser>(
   {
+    email: {
+      type: String,
+      required: true,
+      trim: true,
+    },
     userName: {
       type: String,
       required: true,
@@ -59,6 +67,8 @@ const userSchema = new Schema<IUser>(
       enum: ["size", "time"],
       required: true,
     },
+    consumedTimePercent: { type: Number, required: true, default: 0 },
+    consumedSizePercent: { type: Number, required: true, default: 0 },
     totalSizeBytes: {
       type: Number,
       required: true,
@@ -149,7 +159,8 @@ const userSchema = new Schema<IUser>(
 );
 
 // Compound index for fast lookup
-userSchema.index({ userName: 1, role: 1 });
+userSchema.index({ userName: 1, role: 1 }, { unique: true });
+userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ _id: 1, totalSizeBytes: 1, consumeSizeBytes: 1 });
 
 export const UserModel = model<IUser>("User", userSchema);

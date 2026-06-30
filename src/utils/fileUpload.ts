@@ -1,13 +1,13 @@
 import fs from "fs";
 import { parseFile } from "music-metadata";
-import path from "path";
 import { ENV } from "../config/env";
 import { FileModel } from "../models/file.model";
 import { UserModel } from "../models/user.model";
 import { uploadFileToCloud } from "../services/cloud-upload.service";
 import { dropbox_platform } from "../services/dropbox";
 import { google_drive } from "../services/google";
-
+import { unitComparison } from "./unitComparison";
+import { sendQuotaNotification } from "./quotation";
 type IPlatform = "dropbox" | "drive" | "ftp" | "sftp";
 
 const allowedMimeTypes = new Set([
@@ -96,60 +96,79 @@ export const uploadFileService = async ({
   const { durationInSeconds } = await getAudioDuration(file.path);
   const fileSizeBytes = file.size;
 
-  if (unit === "time") {
-    const userTime = await UserModel.findOneAndUpdate(
-      {
-        _id: userId,
-        $expr: {
-          $gte: [
-            { $subtract: ["$totalTime", "$consumedTime"] },
-            durationInSeconds,
+  const consumedField = unit === "time" ? "$consumedTime" : "$consumeSizeBytes";
+  const totalField = unit === "time" ? "$totalTime" : "$totalSizeBytes";
+  const incrementValue = unit === "time" ? durationInSeconds : fileSizeBytes;
+  const percentField =
+    unit === "time" ? "consumedTimePercent" : "consumedSizePercent";
+
+  const beforeUser = await UserModel.findById(userId)
+    .select(percentField)
+    .lean();
+
+  const updatePipeline = [
+    {
+      $set: {
+        [consumedField.slice(1)]: {
+          $add: [consumedField, incrementValue],
+        },
+
+        [percentField]: {
+          $round: [
+            {
+              $cond: [
+                { $gt: [totalField, 0] },
+                {
+                  $multiply: [
+                    {
+                      $divide: [
+                        {
+                          $add: [consumedField, incrementValue],
+                        },
+                        totalField,
+                      ],
+                    },
+                    100,
+                  ],
+                },
+                0,
+              ],
+            },
+            2,
           ],
         },
-      },
-      {
-        $inc: {
-          consumedTime: durationInSeconds,
-        },
-        $set: {
-          unit,
-        },
-      },
-      { returnDocument: "after" },
-    );
 
-    if (!userTime) {
-      await removeUploadedFile(file.path);
-      throw new Error("Audio duration limit exceeded");
-    }
-  } else if (unit === "size") {
-    // STEP 1: Atomic reservation
-    const userFileSize = await UserModel.findOneAndUpdate(
-      {
-        _id: userId,
-        $expr: {
-          $gte: [
-            { $subtract: ["$totalSizeBytes", "$consumeSizeBytes"] },
-            fileSizeBytes,
-          ],
-        },
+        unit,
       },
-      {
-        $inc: {
-          consumeSizeBytes: fileSizeBytes,
-        },
-        $set: {
-          unit,
-        },
-      },
-      { returnDocument: "after" },
-    );
+    },
+  ];
 
-    if (!userFileSize) {
-      await removeUploadedFile(file.path);
-      throw new Error("Storage limit exceeded");
-    }
-  }
+  const userData = await UserModel.findOneAndUpdate(
+    {
+      _id: userId,
+      $expr: {
+        $gte: [
+          {
+            $subtract: [totalField, consumedField],
+          },
+          incrementValue,
+        ],
+      },
+    },
+    updatePipeline,
+    {
+      returnDocument: "after",
+      updatePipeline: true,
+    },
+  );
+  if (!userData) throw new Error("Your allocated quota has been exceeded");
+
+  const beforePercent =
+    unit === "time"
+      ? (beforeUser?.consumedTimePercent ?? 0)
+      : (beforeUser?.consumedSizePercent ?? 0);
+
+  const toMail = unitComparison(beforePercent, userData[percentField]);
 
   const inc =
     unit === "time"
@@ -208,6 +227,18 @@ export const uploadFileService = async ({
     });
     if (!savedFile) {
       throw new Error("Error while storing file info in database");
+    }
+
+    if (toMail.isMail && toMail.value) {
+      await sendQuotaNotification({
+        email: user.email,
+        userName: user.userName,
+        threshold: toMail.value,
+        unit,
+      }).catch((error) => {
+        console.log("Quota email failed: ", (error as Error).message);
+        throw new Error("Quota email failed");
+      });
     }
     return { message };
   } catch (err) {
