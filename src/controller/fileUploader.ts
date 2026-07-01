@@ -171,39 +171,28 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
 };
 
 export const userLogout = async (req: AuthRequest, res: Response) => {
-  const session = await mongoose.startSession();
-
   try {
     const userId = req.user?.id;
-    if (!userId) return errorHandler(res, "User Id is required");
 
-    session.startTransaction();
-
-    const deleteToken = await TokenModel.deleteMany({ userId }, { session });
-    if (deleteToken.deletedCount === 0) {
-      await session.abortTransaction();
-      return errorHandler(res, "User is already logged out");
+    if (!userId) {
+      return errorHandler(res, "User Id is required");
     }
 
-    const userActive = await UserModel.updateOne(
-      { _id: userId, isActive: true },
-      { $set: { isActive: false } },
-      { session },
-    );
-    if (userActive.modifiedCount === 0) {
-      await session.abortTransaction();
-      return errorHandler(res, "User is already logged out");
-    }
+    await Promise.all([
+      TokenModel.deleteMany({ userId }),
+      UserModel.updateOne(
+        { _id: userId },
+        {
+          $set: {
+            isActive: false,
+          },
+        },
+      ),
+    ]);
 
-    await session.commitTransaction();
     return successHandler(res, "User logged out successfully");
   } catch (error) {
-    if (session.inTransaction()) {
-      await session.abortTransaction();
-    }
     return errorHandler(res, (error as Error).message);
-  } finally {
-    await session.endSession();
   }
 };
 
@@ -813,5 +802,3 @@ export const authConnection = async (req: Request, res: Response) => {
     return errorHandler(res, (error as Error).message);
   }
 };
-
-// compareInPercentage("6a436b7bb106ddc2bfee59d2", "size", 15);
