@@ -1,11 +1,14 @@
 import { Response } from "express";
 import fs from "fs";
 import { google } from "googleapis";
+import { UploadResult } from "../types/upload";
+import { classifyUploadError } from "../utils/classify-upload-error";
 
 export const google_drive = async (
   user: any,
   file: { originalname: string; mimetype: string; path: string },
-) => {
+  storageKey: string,
+): Promise<UploadResult> => {
   try {
     const auth = new google.auth.OAuth2(
       user.googleClientId,
@@ -42,7 +45,7 @@ export const google_drive = async (
 
     const uploadResponse = await drive.files.create({
       requestBody: {
-        name: file.originalname,
+        name: storageKey,
         parents: [audioFolderId],
       },
       media: {
@@ -59,7 +62,7 @@ export const google_drive = async (
     };
     return { fileData, message: "File uploaded successfully on google drive" };
   } catch (error) {
-    throw new Error((error as Error).message);
+    throw new Error(classifyUploadError(error).message);
   }
 };
 
@@ -103,16 +106,24 @@ export const deleteFromGoogleDrive = async (
   clientId: string,
   clientSecretKey: string,
   accessToken: string,
-) => {
-  const auth = new google.auth.OAuth2(clientId, clientSecretKey);
-  auth.setCredentials({
-    access_token: accessToken as string,
-  });
-  const drive = google.drive({
-    version: "v3",
-    auth: auth,
-  });
-  await drive.files.delete({
-    fileId,
-  });
+): Promise<void> => {
+  try {
+    const auth = new google.auth.OAuth2(clientId, clientSecretKey);
+
+    auth.setCredentials({
+      access_token: accessToken,
+    });
+
+    const drive = google.drive({
+      version: "v3",
+      auth,
+    });
+
+    await drive.files.delete({
+      fileId,
+    });
+  } catch (error) {
+    throw new Error(classifyUploadError(error).message);
+    console.error("Google Drive cleanup failed:", (error as Error).message);
+  }
 };

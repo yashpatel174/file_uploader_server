@@ -2,8 +2,8 @@ import { Client } from "basic-ftp";
 import { randomUUID } from "crypto";
 import path from "node:path";
 import { ENV } from "../config/env";
-
-const generatedId = randomUUID();
+import { UploadResult } from "../types/upload";
+import { classifyUploadError } from "../utils/classify-upload-error";
 
 interface FtpConfig {
   host: string;
@@ -16,7 +16,7 @@ export const uploadToFTP = async (
   localFilePath: string,
   remoteFilePath: string,
   config: FtpConfig,
-): Promise<any> => {
+): Promise<UploadResult> => {
   const client = new Client();
 
   try {
@@ -29,6 +29,7 @@ export const uploadToFTP = async (
     });
 
     await client.uploadFrom(localFilePath, remoteFilePath);
+    const generatedId = randomUUID();
 
     const fileData = {
       fileName: path.basename(remoteFilePath),
@@ -37,7 +38,7 @@ export const uploadToFTP = async (
     };
     return { fileData, message: "File Uploaded on FTP Cloud" };
   } catch (e) {
-    console.log("Error =>", (e as Error).message);
+    throw new Error(classifyUploadError(e).message);
   } finally {
     client.close();
   }
@@ -55,21 +56,17 @@ export const deleteFromFTP = async (remotePath: string): Promise<void> => {
     await client.size(remotePath);
     await client.remove(remotePath);
   } catch (e) {
-    const message = (e as Error)?.message ?? "";
+    throw new Error(classifyUploadError(e).message);
+    const message = (e as Error).message ?? "";
 
     if (
-      message.includes("550") || // FTP file not found
+      message.includes("550") ||
       message.toLowerCase().includes("not found")
     ) {
       return;
     }
 
-    console.log(
-      "Error while deleting data from ftp cloud =>",
-      (e as Error).message,
-    );
-
-    throw e;
+    console.error("FTP cleanup failed:", message);
   } finally {
     client.close();
   }

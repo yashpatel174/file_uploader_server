@@ -4,11 +4,16 @@ import { ENV } from "../config/env";
 import { FileModel } from "../models/file.model";
 import { UserModel } from "../models/user.model";
 import { uploadFileToCloud } from "../services/cloud-upload.service";
-import { dropbox_platform } from "../services/dropbox";
-import { google_drive } from "../services/google";
-import { unitComparison } from "./unitComparison";
+import { deleteFromDropbox, dropbox_platform } from "../services/dropbox";
+import { deleteFromFTP } from "../services/ftp";
+import { deleteFromGoogleDrive, google_drive } from "../services/google";
+import { deleteFromSFTP } from "../services/sftp";
+import { UploadResult } from "../types/upload";
 import { sendQuotaNotification } from "./quotation";
-type IPlatform = "dropbox" | "drive" | "ftp" | "sftp";
+import { buildStorageKey } from "./storageKey";
+import { unitComparison } from "./unitComparison";
+
+export type IPlatform = "dropbox" | "drive" | "ftp" | "sftp";
 
 const allowedMimeTypes = new Set([
   "audio/mpeg",
@@ -76,25 +81,34 @@ export const getAudioDuration = async (
   };
 };
 
+export interface UploadSource {
+  path: string;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}
+
 export const uploadFileService = async ({
   user,
   userId,
-  file,
+  uploadSource,
   unit,
   platform,
+  storageKey,
 }: {
   user: any;
   userId: string;
-  file: Express.Multer.File;
+  uploadSource: UploadSource;
   unit: "size" | "time";
   platform: IPlatform;
+  storageKey?: string;
 }) => {
-  if (!allowedMimeTypes.has(file.mimetype)) {
+  if (!allowedMimeTypes.has(uploadSource.mimetype)) {
     throw new Error("Unsupported audio format");
   }
 
-  const { durationInSeconds } = await getAudioDuration(file.path);
-  const fileSizeBytes = file.size;
+  const { durationInSeconds } = await getAudioDuration(uploadSource.path);
+  const fileSizeBytes = uploadSource.size;
 
   const consumedField = unit === "time" ? "$consumedTime" : "$consumeSizeBytes";
   const totalField = unit === "time" ? "$totalTime" : "$totalSizeBytes";
@@ -161,7 +175,9 @@ export const uploadFileService = async ({
       updatePipeline: true,
     },
   );
-  if (!userData) throw new Error("Your allocated quota has been exceeded");
+  if (!userData) {
+    throw new Error("Your allocated quota has been exceeded");
+  }
 
   const beforePercent =
     unit === "time"
@@ -179,14 +195,20 @@ export const uploadFileService = async ({
           consumeSizeBytes: -fileSizeBytes,
         };
 
+  let remoteFileId: string | null = null;
+  let remotePath: string | null = null;
+
+  const finalStorageKey =
+    storageKey ?? buildStorageKey(user.userName, uploadSource.originalname);
+
   try {
-    let data: any;
+    let data: UploadResult;
     switch (platform) {
       case "drive":
-        data = await google_drive(user, file);
+        data = await google_drive(user, uploadSource, finalStorageKey);
         break;
       case "dropbox":
-        data = await dropbox_platform(user, file);
+        data = await dropbox_platform(user, uploadSource, finalStorageKey);
         break;
       default:
         let port = 0;
@@ -197,8 +219,8 @@ export const uploadFileService = async ({
         }
         data = await uploadFileToCloud(
           platform,
-          file.path,
-          `/Audio/${Date.now()}-${file.originalname}`,
+          uploadSource.path,
+          `/Audio/${finalStorageKey}`,
           {
             host: ENV.sftp_host,
             port: port as number,
@@ -209,14 +231,16 @@ export const uploadFileService = async ({
         break;
     }
     const { fileData, message } = data;
-    const { fileName, remoteFileId, remotePath } = fileData;
+    const { fileName } = fileData;
+    remoteFileId = fileData.remoteFileId;
+    remotePath = fileData.remotePath;
     // STEP 2: Save file metadata
     const savedFile = await FileModel.create({
       userId,
       fileName,
       platform,
-      remoteFileId,
-      remotePath,
+      remoteFileId: fileData.remoteFileId,
+      remotePath: fileData.remotePath,
       ...(unit === "time"
         ? {
             timeDuration: durationInSeconds,
@@ -240,7 +264,13 @@ export const uploadFileService = async ({
         throw new Error("Quota email failed");
       });
     }
-    return { message };
+    return {
+      message,
+      uploadedFileId: savedFile._id,
+      remoteFileId,
+      remotePath,
+      status: "uploaded",
+    };
   } catch (err) {
     // STEP 3: rollback DB if metadata fails
     await UserModel.updateOne(
@@ -250,9 +280,44 @@ export const uploadFileService = async ({
       },
     );
 
-    await removeUploadedFile(file.path);
+    if (remoteFileId && remotePath) {
+      try {
+        switch (platform) {
+          case "drive":
+            await deleteFromGoogleDrive(
+              remoteFileId,
+              user.googleClientId,
+              user.googleClientSecret,
+              user.googleAccessToken,
+            );
+            break;
+
+          case "dropbox":
+            await deleteFromDropbox(remoteFileId, user.dropboxAccessToken);
+            break;
+
+          case "ftp":
+            await deleteFromFTP(remotePath);
+            break;
+
+          case "sftp":
+            await deleteFromSFTP(remotePath);
+            break;
+        }
+      } catch (cleanupError) {
+        console.error("Cloud cleanup failed:", (cleanupError as Error).message);
+      }
+    }
 
     throw err;
+  } finally {
+    if (!storageKey) {
+      try {
+        await removeUploadedFile(uploadSource.path);
+      } catch (error) {
+        console.error("Temp file cleanup failed:", (error as Error).message);
+      }
+    }
   }
 };
 

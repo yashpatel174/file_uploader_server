@@ -12,8 +12,8 @@ export interface IUser extends Document {
   unit: UnitInterface;
   consumedTimePercent: number;
   consumedSizePercent: number;
-  totalSizeBytes: number; // max allowed storage
-  consumeSizeBytes: number; // used storage
+  totalSizeBytes: number;
+  consumeSizeBytes: number;
   totalTime: number;
   consumedTime: number;
   googleClientId: string;
@@ -34,11 +34,7 @@ export interface IUser extends Document {
 
 const userSchema = new Schema<IUser>(
   {
-    email: {
-      type: String,
-      required: true,
-      trim: true,
-    },
+    email: { type: String, required: true, trim: true },
     userName: {
       type: String,
       required: true,
@@ -46,35 +42,18 @@ const userSchema = new Schema<IUser>(
       trim: true,
       index: true,
     },
-    password: {
-      type: String,
-      trim: true,
-      select: false,
-    },
-    isActive: {
-      type: Boolean,
-      required: true,
-      default: false,
-    },
+    password: { type: String, trim: true, select: false },
+    isActive: { type: Boolean, required: true, default: false },
     role: {
       type: String,
       enum: ["admin", "user"],
       required: true,
       index: true,
     },
-    unit: {
-      type: String,
-      enum: ["size", "time"],
-      required: true,
-    },
+    unit: { type: String, enum: ["size", "time"], required: true },
     consumedTimePercent: { type: Number, required: true, default: 0 },
     consumedSizePercent: { type: Number, required: true, default: 0 },
-    totalSizeBytes: {
-      type: Number,
-      required: true,
-      min: 0,
-      default: 0,
-    },
+    totalSizeBytes: { type: Number, required: true, min: 0, default: 0 },
     consumeSizeBytes: {
       type: Number,
       required: true,
@@ -113,11 +92,7 @@ const userSchema = new Schema<IUser>(
       select: false,
       default: null,
     },
-    googleAccessTokenExpiry: {
-      type: Date,
-      select: false,
-      default: null,
-    },
+    googleAccessTokenExpiry: { type: Date, select: false, default: null },
     googleAuthenticated: {
       type: Boolean,
       default: false,

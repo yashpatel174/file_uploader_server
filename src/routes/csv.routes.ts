@@ -9,14 +9,17 @@ import {
   getAllAudio,
   getAllUsers,
   getAudioAccess,
+  getFailedUploadsController,
   loginUser,
   refreshAccessToken,
+  retryUploadController,
   updateUserAccess,
   uploadFileController,
+  uploadFilesController,
   userLogout,
 } from "../controller/fileUploader";
-import { upload } from "../middleware/multer";
 import { authenticate, authorize } from "../middleware/authMiddleware";
+import { upload } from "../middleware/multer";
 const router = Router();
 
 router.get("/admin/create", createAdmin);
@@ -36,6 +39,9 @@ router.post(
   upload.single("file"),
   uploadFileController,
 );
+router.get("/upload/failed", getFailedUploadsController);
+router.post("/upload/:jobId/retry", retryUploadController);
+router.get("/upload/files", uploadFilesController);
 router.get("/audio/:_id", authenticate, authorize("admin"), getAllAudio);
 router.get("/api/files/:fileId/stream", getAudioAccess);
 router.delete("/:_id", authenticate, authorize("admin"), deleteUser);

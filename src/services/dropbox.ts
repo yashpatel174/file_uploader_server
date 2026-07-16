@@ -4,18 +4,24 @@ import { Dropbox } from "dropbox";
 import { Response } from "express";
 import fs from "fs/promises";
 import { ENV } from "../config/env";
+import { UploadResult } from "../types/upload";
+import { classifyUploadError } from "../utils/classify-upload-error";
+import { UploadSource } from "../utils/fileUpload";
 
 type DropboxDownloadResult = files.FileMetadata & {
   fileBinary: Buffer;
 };
 
-export const dropbox_platform = async (user: any, file: any) => {
+export const dropbox_platform = async (
+  user: any,
+  file: UploadSource,
+  storageKey: string,
+): Promise<UploadResult> => {
   try {
     const dbx = new Dropbox({
       accessToken: user.dropboxAccessToken,
     });
-    const fileName = `${Date.now()}-${file.originalname}`;
-    const dropboxPath = `/Audio/${fileName}`;
+    const dropboxPath = `/Audio/${storageKey}`;
     const fileBuffer = await fs.readFile(file.path);
 
     const {
@@ -33,11 +39,11 @@ export const dropbox_platform = async (user: any, file: any) => {
     const fileData = {
       fileName: name,
       remoteFileId: id,
-      remotePath: path_display,
+      remotePath: path_display!,
     };
     return { fileData, message: "File Uploaded successfully on Dropbox" };
   } catch (error) {
-    throw new Error((error as Error).message);
+    throw new Error(classifyUploadError(error).message);
   }
 };
 
@@ -96,11 +102,15 @@ export const deleteFromDropbox = async (
   fileId: string,
   accessToken: string,
 ): Promise<void> => {
-  const dbx = new Dropbox({
-    accessToken,
-  });
+  try {
+    const dbx = new Dropbox({
+      accessToken,
+    });
 
-  await dbx.filesDeleteV2({
-    path: fileId,
-  });
+    await dbx.filesDeleteV2({
+      path: fileId,
+    });
+  } catch (error) {
+    throw new Error(classifyUploadError(error).message);
+  }
 };

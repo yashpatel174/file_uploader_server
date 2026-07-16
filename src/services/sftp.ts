@@ -1,9 +1,9 @@
-import path from "node:path";
 import { randomUUID } from "crypto";
+import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
 import { ENV } from "../config/env";
-
-const generatedId = randomUUID();
+import { UploadResult } from "../types/upload";
+import { classifyUploadError } from "../utils/classify-upload-error";
 
 interface SftpConfig {
   host: string;
@@ -16,7 +16,7 @@ export const uploadToSFTP = async (
   localFilePath: string,
   remoteFilePath: string,
   config: SftpConfig,
-): Promise<any> => {
+): Promise<UploadResult> => {
   const sftp = new SftpClient();
 
   try {
@@ -28,6 +28,7 @@ export const uploadToSFTP = async (
     });
 
     await sftp.put(localFilePath, remoteFilePath);
+    const generatedId = randomUUID();
 
     const fileData = {
       fileName: path.basename(remoteFilePath),
@@ -36,7 +37,7 @@ export const uploadToSFTP = async (
     };
     return { fileData, message: "File Uploaded on SFTP Cloud" };
   } catch (e) {
-    console.log("Error =>", (e as Error).message);
+    throw new Error(classifyUploadError(e).message);
   } finally {
     await sftp.end();
   }
@@ -52,8 +53,14 @@ export const deleteFromSFTP = async (remotePath: string): Promise<void> => {
       username: ENV.sftp_username!,
       password: ENV.sftp_password!,
     });
+
     const exists = await sftp.exists(remotePath);
-    if (exists) await sftp.delete(remotePath);
+
+    if (exists) {
+      await sftp.delete(remotePath);
+    }
+  } catch (error) {
+    throw new Error(classifyUploadError(error).message);
   } finally {
     await sftp.end();
   }

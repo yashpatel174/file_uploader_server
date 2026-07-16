@@ -1,3 +1,4 @@
+import { UploadResult } from "../types/upload";
 import { uploadToFTP } from "./ftp";
 import { uploadToSFTP } from "./sftp";
 
@@ -15,7 +16,7 @@ export const uploadFileToCloud = async (
   localFilePath: string,
   remoteFilePath: string,
   config: UploadConfig,
-): Promise<string> => {
+): Promise<UploadResult> => {
   let data;
   switch (platform) {
     case "sftp":

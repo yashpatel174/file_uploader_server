@@ -15,7 +15,13 @@ import { UserModel } from "../models/user.model";
 import { deleteFileByPlatform, DeleteFilePayload } from "../services/common";
 import { dropboxAccess, refreshDropboxToken } from "../services/dropbox";
 import { getDriveAccess } from "../services/google";
-import { uploadFileService } from "../utils/fileUpload";
+import { uploadFilesService } from "../services/upload-file.service";
+import {
+  createUploadJobService,
+  getFailedUploadsService,
+  retryUploadService,
+} from "../services/upload-job.service";
+import { IPlatform } from "../utils/fileUpload";
 import {
   errorHandler,
   isValidStorageSize,
@@ -273,12 +279,13 @@ export const uploadFileController = async (req: Request, res: Response) => {
 
     if (!_id) return errorHandler(res, "User ID is required");
     if (!unit) return errorHandler(res, "File Unit is required");
+    console.log();
     if (!file) return errorHandler(res, "File is required");
     if (!platform) return errorHandler(res, "File upload location is required");
 
-    let dbPopulation = "";
+    let dbPopulation = "role email userName";
     if (platform === "drive") {
-      dbPopulation =
+      dbPopulation +=
         "googleClientId googleClientSecret googleAccessToken role email userName";
     } else if (platform === "dropbox") {
       dbPopulation = "dropboxAccessToken role email userName";
@@ -291,15 +298,73 @@ export const uploadFileController = async (req: Request, res: Response) => {
       return errorHandler(res, "Only user have access to upload files.");
     }
 
-    const { message } = await uploadFileService({
+    const result = await createUploadJobService({
       user,
       userId: _id,
-      file,
+      uploadSource: file,
       unit,
       platform,
     });
 
-    return successHandler(res, message, user);
+    return successHandler(res, result.message, result);
+  } catch (error) {
+    return errorHandler(res, (error as Error).message);
+  }
+};
+
+export const getFailedUploadsController = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const page = Number(req.query.page ?? 1);
+    const limit = Number(req.query.limit ?? 10);
+
+    const result = await getFailedUploadsService({
+      page,
+      limit,
+    });
+
+    return successHandler(res, "Failed uploads fetched successfully.", result);
+  } catch (error) {
+    return errorHandler(res, (error as Error).message);
+  }
+};
+
+export const retryUploadController = async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+
+    if (!jobId) {
+      return errorHandler(res, "Job ID is required");
+    }
+
+    const result = await retryUploadService(jobId as string);
+
+    return successHandler(res, result.message, result);
+  } catch (error) {
+    return errorHandler(res, (error as Error).message);
+  }
+};
+
+export const uploadFilesController = async (req: Request, res: Response) => {
+  try {
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+
+    const { userId, platform, search, startDate, endDate } = req.query;
+
+    const result = await uploadFilesService({
+      page,
+      limit,
+      userId: userId as string | undefined,
+      platform: platform as IPlatform | undefined,
+      search: search as string | undefined,
+      startDate: startDate as string | undefined,
+      endDate: endDate as string | undefined,
+    });
+
+    return successHandler(res, "Uploaded files fetched successfully.", result);
   } catch (error) {
     return errorHandler(res, (error as Error).message);
   }
@@ -758,6 +823,7 @@ export const authConnection = async (req: Request, res: Response) => {
 
     if (platform === "dropbox") {
       const { dropboxRefreshToken, dropboxAppKey, dropboxSecretKey } = user;
+      console.log("dropboxRefreshToken: ", dropboxRefreshToken);
       const accessToken: string = await refreshDropboxToken(
         dropboxRefreshToken,
         dropboxAppKey!,
