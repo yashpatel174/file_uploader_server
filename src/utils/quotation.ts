@@ -6,7 +6,13 @@ export const getQuotaNotificationTemplate = (
   unit: "size" | "time",
 ) => {
   const severity =
-    threshold >= 90 ? "Critical" : threshold >= 80 ? "Warning" : "Alert";
+    threshold === 100
+      ? "Blocked"
+      : threshold >= 90
+        ? "Critical"
+        : threshold >= 80
+          ? "Warning"
+          : "Alert";
 
   const subject = `${severity}: ${threshold}% ${
     unit === "size" ? "Storage" : "Usage Time"

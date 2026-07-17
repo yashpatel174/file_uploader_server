@@ -1,110 +1,158 @@
 import axios from "axios";
+import { FailureType } from "../models/uploadJob.model";
 
-type Provider = "google" | "dropbox";
+export type CloudProvider =
+  | "google"
+  | "dropbox"
+  | "ftp"
+  | "sftp"
+  | "application";
 
-export const classifyProviderAuthError = (
-  provider: Provider,
+export interface CloudError {
+  code: string;
+  message: string;
+  provider: CloudProvider;
+  failureType: FailureType;
+  retryable: boolean;
+  httpStatus?: number | undefined;
+}
+
+export const classifyCloudError = (
+  provider: CloudProvider,
   error: unknown,
-): string => {
+): CloudError => {
   let status: number | undefined;
   let data: any;
-  let message: string | undefined;
+  let message = "Unknown error";
+  let code = "UNKNOWN";
 
-  // Axios (Dropbox)
   if (axios.isAxiosError(error)) {
     status = error.response?.status;
     data = error.response?.data;
     message = error.message;
-  }
-  // Gaxios (Google)
-  else if (typeof error === "object" && error !== null && "response" in error) {
+    code = String(status ?? error.code ?? "UNKNOWN");
+  } else if (
+    typeof error === "object" &&
+    error !== null &&
+    "response" in error
+  ) {
     const err = error as any;
+
     status = err.response?.status;
     data = err.response?.data;
-    message = err.message;
-  }
-  // Native Error
-  else if (error instanceof Error) {
+    message = err.message ?? message;
+    code = String(status ?? err.code ?? "UNKNOWN");
+  } else if (error instanceof Error) {
     message = error.message;
   }
 
-  switch (provider) {
-    case "google": {
-      switch (data?.error) {
-        case "invalid_client":
-          return "Invalid Google Client ID or Client Secret.";
+  const oauthError =
+    typeof data?.error === "string"
+      ? data.error.split(":")[0].trim().toLowerCase()
+      : undefined;
 
-        case "invalid_grant":
-          return "Authorization code is invalid, expired, already used, or does not match the redirect URI.";
+  switch (oauthError) {
+    case "invalid_client":
+      return {
+        code,
+        provider,
+        failureType: "authentication",
+        retryable: false,
+        httpStatus: status,
+        message:
+          provider === "google"
+            ? "Invalid Google Client ID or Client Secret."
+            : "Invalid Dropbox App Key or Secret Key.",
+      };
 
-        case "redirect_uri_mismatch":
-          return "Google OAuth Redirect URI does not match the configured Redirect URI.";
+    case "invalid_grant":
+      return {
+        code,
+        provider,
+        failureType: "authentication",
+        retryable: false,
+        httpStatus: status,
+        message:
+          provider === "google"
+            ? "Authorization code is invalid, expired, already used, or does not match the redirect URI."
+            : "Authorization code is invalid or expired.",
+      };
 
-        case "unauthorized_client":
-          return "Google OAuth client is not authorized.";
+    case "redirect_uri_mismatch":
+      return {
+        code,
+        provider,
+        failureType: "authentication",
+        retryable: false,
+        httpStatus: status,
+        message:
+          "OAuth Redirect URI does not match the configured Redirect URI.",
+      };
 
-        case "access_denied":
-          return "Google authorization was denied.";
+    case "unauthorized_client":
+      return {
+        code,
+        provider,
+        failureType: "authentication",
+        retryable: false,
+        httpStatus: status,
+        message: "OAuth client is not authorized.",
+      };
 
-        default:
-          if (status === 401) {
-            return "Invalid Google Client ID or Client Secret.";
-          }
-
-          if (status === 400) {
-            return (
-              data?.error_description ||
-              data?.error ||
-              "Google authentication failed."
-            );
-          }
-
-          return (
-            data?.error_description ||
-            data?.error ||
-            message ||
-            "Google authentication failed."
-          );
-      }
-    }
-
-    case "dropbox": {
-      switch (data?.error) {
-        case "invalid_client":
-          return "Invalid Dropbox App Key or Secret Key.";
-
-        case "invalid_grant":
-          return "Authorization code is invalid or has expired.";
-
-        case "unsupported_grant_type":
-          return "Unsupported OAuth grant type.";
-
-        case "access_denied":
-          return "Dropbox authorization was denied.";
-
-        default:
-          if (status === 401) {
-            return "Invalid Dropbox App Key or Secret Key.";
-          }
-
-          if (status === 400) {
-            return (
-              data?.error_description ||
-              data?.error ||
-              "Dropbox authentication failed."
-            );
-          }
-
-          return (
-            data?.error_description ||
-            data?.error ||
-            message ||
-            "Dropbox authentication failed."
-          );
-      }
-    }
-
-    default:
-      return message || "Authentication failed.";
+    case "access_denied":
+      return {
+        code,
+        provider,
+        failureType: "authentication",
+        retryable: false,
+        httpStatus: status,
+        message: "Authorization was denied.",
+      };
   }
+
+  if (status === 401 || status === 403) {
+    return {
+      code,
+      provider,
+      failureType: "authentication",
+      retryable: false,
+      httpStatus: status,
+      message:
+        provider === "google"
+          ? "Invalid Google credentials."
+          : "Invalid Dropbox credentials.",
+    };
+  }
+
+  if (status === 429) {
+    return {
+      code,
+      provider,
+      failureType: "provider",
+      retryable: true,
+      httpStatus: status,
+      message: "Provider rate limit exceeded.",
+    };
+  }
+
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    return {
+      code,
+      provider,
+      failureType: "provider",
+      retryable: true,
+      httpStatus: status,
+      message: "Cloud provider is temporarily unavailable.",
+    };
+  }
+
+  return {
+    code,
+    provider,
+    failureType: "unknown",
+    retryable: false,
+    httpStatus: status,
+    message:
+      data?.error_description ?? data?.error ?? message ?? "Unknown error",
+  };
 };

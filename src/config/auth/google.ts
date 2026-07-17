@@ -1,8 +1,9 @@
 import { Request, Response } from "express";
 import { google } from "googleapis";
+import { Types } from "mongoose";
 import { UserModel } from "../../models/user.model";
+import { classifyCloudError } from "../../utils/classify-api-error";
 import { errorHandler, successHandler } from "../../utils/responseHandler";
-import { classifyProviderAuthError } from "../../utils/classify-api-error";
 
 export const googleAuth = async (
   clientId: string,
@@ -30,7 +31,8 @@ export const connectGoogle = async (req: Request, res: Response) => {
       const response = await oauth.getToken(code);
       tokens = response.tokens;
     } catch (error: any) {
-      return errorHandler(res, classifyProviderAuthError("google", error));
+      const classified = classifyCloudError("google", error);
+      return errorHandler(res, classified.message);
     }
 
     if (!tokens.access_token) {
@@ -61,7 +63,9 @@ export const connectGoogle = async (req: Request, res: Response) => {
 
     return successHandler(res, "Google Authenticated successfully");
   } catch (error) {
-    return errorHandler(res, (error as Error).message);
+    const classified = classifyCloudError("google", error);
+    return errorHandler(res, classified.message);
+    // return errorHandler(res, (error as Error).message);
   }
 };
 
@@ -70,27 +74,49 @@ export const getValidGoogleAccessToken = async (
   googleClientSecret: string,
   googleRefreshToken: string,
   accessTokenExpiry: Date,
+  _id: Types.ObjectId,
 ) => {
-  const oauth2Client = new google.auth.OAuth2(
-    googleClientId,
-    googleClientSecret,
-  );
+  try {
+    const oauth2Client = new google.auth.OAuth2(
+      googleClientId,
+      googleClientSecret,
+    );
 
-  oauth2Client.setCredentials({
-    refresh_token: googleRefreshToken,
-  });
+    oauth2Client.setCredentials({
+      refresh_token: googleRefreshToken,
+    });
 
-  const isExpired =
-    Date.now() >= new Date(accessTokenExpiry).getTime() - 5 * 60 * 1000;
+    const isExpired =
+      Date.now() >= new Date(accessTokenExpiry).getTime() - 5 * 60 * 1000;
 
-  if (!isExpired) {
-    null;
+    if (!isExpired) {
+      null;
+    }
+
+    const { credentials } = await oauth2Client.refreshAccessToken();
+
+    return {
+      accessToken: credentials.access_token,
+      expiryDate: credentials.expiry_date,
+    };
+  } catch (error) {
+    const classified = classifyCloudError("google", error);
+    if (classified.httpStatus === 401 || classified.httpStatus === 400) {
+      await UserModel.findByIdAndUpdate(
+        _id,
+        {
+          $set: {
+            googleClientId: null,
+            googleClientSecret: null,
+            googleAccessToken: null,
+            googleRefreshTokenEnc: null,
+            googleAccessTokenExpiry: null,
+            googleAuthenticated: false,
+          },
+        },
+        { returnDocuments: "after" },
+      );
+    }
+    throw classifyCloudError("google", error);
   }
-
-  const { credentials } = await oauth2Client.refreshAccessToken();
-
-  return {
-    accessToken: credentials.access_token,
-    expiryDate: credentials.expiry_date,
-  };
 };

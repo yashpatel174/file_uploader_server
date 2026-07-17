@@ -53,23 +53,14 @@ export const createUploadJobService = async ({
       timeDuration: duration,
       status: "failed",
       retryable: true,
-      attemptCount: 1,
+      attemptCount: 0,
       localFilePath: uploadSource.path,
       lastError: classified,
-      attempts: [
-        {
-          attemptNo: 1,
-          startedAt: new Date(),
-          endedAt: new Date(),
-          status: "failed",
-          errorCode: classified.code,
-          errorMessage: classified.message,
-        },
-      ],
+      attempts: [],
     });
 
     throw {
-      error,
+      error: classified.message,
       jobId: uploadJob.jobId,
     };
   }
@@ -124,16 +115,16 @@ export const retryUploadService = async (jobId: string) => {
     throw new Error("Upload job not found");
   }
 
-  if (!uploadJob.retryable) {
-    throw new Error("This upload cannot be retried");
+  if (uploadJob.attemptCount >= uploadJob.maxAttempts) {
+    throw new Error("Maximum retry attempts exceeded");
   }
 
   if (uploadJob.status !== "failed") {
     throw new Error("Only failed uploads can be retried");
   }
 
-  if (uploadJob.attemptCount >= uploadJob.maxAttempts) {
-    throw new Error("Maximum retry attempts exceeded");
+  if (!uploadJob.retryable) {
+    throw new Error("This upload cannot be retried");
   }
 
   const locked = await UploadJobModel.findOneAndUpdate(
@@ -158,7 +149,6 @@ export const retryUploadService = async (jobId: string) => {
   }
 
   await fs.access(uploadJob.localFilePath);
-  console.log("uploadJob: ", uploadJob);
 
   let projection = "role email userName";
 

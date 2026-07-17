@@ -3,8 +3,11 @@ import type { files } from "dropbox";
 import { Dropbox } from "dropbox";
 import { Response } from "express";
 import fs from "fs/promises";
+import { Types } from "mongoose";
 import { ENV } from "../config/env";
+import { UserModel } from "../models/user.model";
 import { UploadResult } from "../types/upload";
+import { classifyCloudError } from "../utils/classify-api-error";
 import { classifyUploadError } from "../utils/classify-upload-error";
 import { UploadSource } from "../utils/fileUpload";
 
@@ -51,25 +54,47 @@ export const refreshDropboxToken = async (
   refreshToken: string,
   appKey: string,
   appSecret: string,
-): Promise<string> => {
-  const response = await axios.post(
-    ENV.dropbox_token as string,
-    new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }),
-    {
-      auth: {
-        username: appKey,
-        password: appSecret,
+  _id: Types.ObjectId,
+) => {
+  try {
+    const response = await axios.post(
+      ENV.dropbox_token as string,
+      new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+      {
+        auth: {
+          username: appKey,
+          password: appSecret,
+        },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
       },
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-    },
-  );
+    );
 
-  return response.data.access_token;
+    return response.data.access_token;
+  } catch (error) {
+    const classified = classifyCloudError("dropbox", error);
+    if (classified.httpStatus === 400) {
+      await UserModel.findByIdAndUpdate(
+        _id,
+        {
+          $set: {
+            dropboxAppKey: null,
+            dropboxSecretKey: null,
+            dropboxAccountId: null,
+            dropboxAccessToken: null,
+            dropboxRefreshToken: null,
+            dropboxAuthenticated: false,
+          },
+        },
+        { returnDocuments: "after" },
+      );
+    }
+    throw new Error(classified.message);
+  }
 };
 
 export const dropboxAccess = async (

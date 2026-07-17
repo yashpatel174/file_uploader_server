@@ -4,6 +4,7 @@ export interface DeleteFilePayload {
   remoteFileId?: string;
 }
 
+import { Types } from "mongoose";
 import { deleteFromDropbox, refreshDropboxToken } from "./dropbox";
 import { deleteFromFTP } from "./ftp";
 import { deleteFromGoogleDrive } from "./google";
@@ -17,6 +18,7 @@ export const deleteFileByPlatform = async ({
   refreshToken,
   appKey,
   appSecret,
+  userId,
 }: {
   file: DeleteFilePayload;
   clientId?: string;
@@ -25,6 +27,7 @@ export const deleteFileByPlatform = async ({
   refreshToken?: string;
   appKey?: string;
   appSecret?: string;
+  userId: Types.ObjectId;
 }): Promise<void> => {
   switch (file.platform) {
     case "ftp":
@@ -38,6 +41,7 @@ export const deleteFileByPlatform = async ({
         refreshToken!,
         appKey!,
         appSecret!,
+        userId,
       );
       return deleteFromDropbox(file.remoteFileId as string, dropboxNewToken!);
 

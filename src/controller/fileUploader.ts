@@ -279,7 +279,6 @@ export const uploadFileController = async (req: Request, res: Response) => {
 
     if (!_id) return errorHandler(res, "User ID is required");
     if (!unit) return errorHandler(res, "File Unit is required");
-    console.log();
     if (!file) return errorHandler(res, "File is required");
     if (!platform) return errorHandler(res, "File upload location is required");
 
@@ -307,8 +306,8 @@ export const uploadFileController = async (req: Request, res: Response) => {
     });
 
     return successHandler(res, result.message, result);
-  } catch (error) {
-    return errorHandler(res, (error as Error).message);
+  } catch (e: any) {
+    return errorHandler(res, e.error as string);
   }
 };
 
@@ -403,7 +402,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
     ]);
 
     if (!users || users.length === 0) {
-      return errorHandler(res, "Users not available.");
+      return errorHandler(res, "Users not found");
     }
 
     const userIds = users.map((user) => new Types.ObjectId(user._id));
@@ -641,6 +640,7 @@ export const getAudioAccess = async (req: Request, res: Response) => {
         googleClientSecret,
         googleRefreshTokenEnc,
         googleAccessTokenExpiry,
+        userId ? userId : getFile.userId,
       );
 
       await getDriveAccess(
@@ -658,6 +658,7 @@ export const getAudioAccess = async (req: Request, res: Response) => {
         dropboxRefreshToken,
         dropboxAppKey!,
         dropboxSecretKey!,
+        userId,
       );
       await dropboxAccess(accessToken, remoteFileId, res as Response);
     }
@@ -751,6 +752,7 @@ export const deleteUser = async (req: Request, res: Response) => {
       dropboxSecretKey,
       dropboxAppKey,
     } = user;
+    console.log("user: ", user);
 
     let tokenData: any;
     if (isDrive) {
@@ -759,6 +761,7 @@ export const deleteUser = async (req: Request, res: Response) => {
         googleClientSecret,
         googleRefreshTokenEnc,
         googleAccessTokenExpiry,
+        user._id,
       );
     }
 
@@ -774,6 +777,7 @@ export const deleteUser = async (req: Request, res: Response) => {
           refreshToken: isDropbox ? dropboxRefreshToken! : "",
           appKey: isDropbox ? dropboxAppKey! : "",
           appSecret: isDropbox ? dropboxSecretKey! : "",
+          userId: user._id,
         });
       }),
     );
@@ -823,11 +827,11 @@ export const authConnection = async (req: Request, res: Response) => {
 
     if (platform === "dropbox") {
       const { dropboxRefreshToken, dropboxAppKey, dropboxSecretKey } = user;
-      console.log("dropboxRefreshToken: ", dropboxRefreshToken);
       const accessToken: string = await refreshDropboxToken(
         dropboxRefreshToken,
         dropboxAppKey!,
         dropboxSecretKey!,
+        user._id,
       );
       const updatedToken = await UserModel.findByIdAndUpdate(_id, {
         dropboxAccessToken: accessToken!,
@@ -852,6 +856,7 @@ export const authConnection = async (req: Request, res: Response) => {
         googleClientSecret,
         googleRefreshTokenEnc,
         googleAccessTokenExpiry,
+        user._id,
       );
       const updatedToken = await UserModel.findByIdAndUpdate(_id, {
         googleAccessToken: tokenData.accessToken,

@@ -176,7 +176,7 @@ export const uploadFileService = async ({
     },
   );
   if (!userData) {
-    throw new Error("Your allocated quota has been exceeded");
+    throw new Error(`Your allocated ${unit} quota has been exceeded`);
   }
 
   const beforePercent =

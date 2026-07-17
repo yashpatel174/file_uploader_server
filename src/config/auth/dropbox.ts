@@ -1,9 +1,9 @@
 import axios from "axios";
 import { Request, Response } from "express";
 import { UserModel } from "../../models/user.model";
+import { classifyCloudError } from "../../utils/classify-api-error";
 import { errorHandler, successHandler } from "../../utils/responseHandler";
 import { ENV } from "../env";
-import { classifyProviderAuthError } from "../../utils/classify-api-error";
 
 export const dropboxAuth = async (req: Request, res: Response) => {
   try {
@@ -66,7 +66,6 @@ export const dropboxExchangeToken = async (req: Request, res: Response) => {
           dropboxAuthenticated: true,
           dropboxAppKey: appKey,
           dropboxSecretKey: appSecret,
-          dropboxAccountId: account_id,
           dropboxAccessToken: access_token,
           dropboxRefreshToken: refresh_token,
         },
@@ -75,6 +74,7 @@ export const dropboxExchangeToken = async (req: Request, res: Response) => {
 
     return successHandler(res, "Dropbox Authenticated successfullly");
   } catch (error) {
-    return errorHandler(res, classifyProviderAuthError("dropbox", error));
+    const classified = classifyCloudError("dropbox", error);
+    return errorHandler(res, classified.message);
   }
 };

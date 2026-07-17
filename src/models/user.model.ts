@@ -24,7 +24,6 @@ export interface IUser extends Document {
   googleAuthenticated: boolean;
   dropboxAppKey: string;
   dropboxSecretKey: string;
-  dropboxAccountId: string;
   dropboxAccessToken: string;
   dropboxRefreshToken: string;
   dropboxAuthenticated: boolean;
@@ -103,11 +102,6 @@ const userSchema = new Schema<IUser>(
       default: null,
     },
     dropboxSecretKey: {
-      type: String,
-      select: false,
-      default: null,
-    },
-    dropboxAccountId: {
       type: String,
       select: false,
       default: null,
