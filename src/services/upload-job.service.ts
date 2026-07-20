@@ -76,12 +76,23 @@ export const getFailedUploadsService = async ({
   const skip = (page - 1) * limit;
 
   const [jobs, total] = await Promise.all([
-    UploadJobModel.find({
-      status: "failed",
-    })
+    UploadJobModel.find(
+      {
+        status: "failed",
+      },
+      {
+        platform: 1,
+        retryId: 1,
+        attemptCount: 1,
+        lastError: 1,
+        jobId: 1,
+        _id: 0,
+        retryable: 1,
+      },
+    )
       .populate({
         path: "userId",
-        select: "userName",
+        select: "userName -_id",
       })
       .sort({
         createdAt: -1,
@@ -140,7 +151,7 @@ export const retryUploadService = async (jobId: string) => {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
     },
   );
 

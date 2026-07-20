@@ -9,13 +9,14 @@ import {
   getAllAudio,
   getAllUsers,
   getAudioAccess,
+  getAudioFromPlatforms,
   getFailedUploadsController,
+  getUploadFilesController,
   loginUser,
   refreshAccessToken,
   retryUploadController,
   updateUserAccess,
   uploadFileController,
-  uploadFilesController,
   userLogout,
 } from "../controller/fileUploader";
 import { authenticate, authorize } from "../middleware/authMiddleware";
@@ -41,8 +42,9 @@ router.post(
 );
 router.get("/upload/failed", getFailedUploadsController);
 router.post("/upload/:jobId/retry", retryUploadController);
-router.get("/upload/files", uploadFilesController);
+router.get("/upload/files", getUploadFilesController);
 router.get("/audio/:_id", authenticate, authorize("admin"), getAllAudio);
+router.get("/user/audio/:_id/:platform", getAudioFromPlatforms);
 router.get("/api/files/:fileId/stream", getAudioAccess);
 router.delete("/:_id", authenticate, authorize("admin"), deleteUser);
 router.get(

@@ -11,6 +11,7 @@ import { privateKey, publicKey } from "../config/keys/auth_config";
 import { AuthRequest } from "../middleware/authMiddleware";
 import { FileModel } from "../models/file.model";
 import { TokenModel } from "../models/token.model";
+import { UploadJobModel } from "../models/uploadJob.model";
 import { UserModel } from "../models/user.model";
 import { deleteFileByPlatform, DeleteFilePayload } from "../services/common";
 import { dropboxAccess, refreshDropboxToken } from "../services/dropbox";
@@ -338,6 +339,66 @@ export const retryUploadController = async (req: Request, res: Response) => {
       return errorHandler(res, "Job ID is required");
     }
 
+    const file = await UploadJobModel.findOne(
+      { jobId },
+      { platform: 1, userId: 1, _id: 0 },
+    );
+    if (!file) return errorHandler(res, "File not found");
+
+    let populate: string;
+
+    if (file.platform === "drive") {
+      populate =
+        "googleClientId googleClientSecret googleRefreshTokenEnc googleAccessTokenExpiry";
+    } else if (file.platform === "dropbox") {
+      populate = "dropboxRefreshToken dropboxAppKey dropboxSecretKey";
+    }
+
+    const user = await UserModel.findById(file.userId)
+      .select(populate!)
+      .lean()
+      .exec();
+    if (!user) return errorHandler(res, "User not found");
+
+    if (file.platform === "dropbox") {
+      const { dropboxRefreshToken, dropboxAppKey, dropboxSecretKey } = user;
+      const accessToken: string = await refreshDropboxToken(
+        dropboxRefreshToken,
+        dropboxAppKey!,
+        dropboxSecretKey!,
+        file.userId,
+      );
+      const updatedToken = await UserModel.findByIdAndUpdate(file.userId, {
+        dropboxAccessToken: accessToken!,
+      });
+      if (!updatedToken) {
+        return errorHandler(res, "Error while updating access token");
+      }
+    } else if (file.platform === "drive") {
+      const {
+        googleClientId,
+        googleClientSecret,
+        googleRefreshTokenEnc,
+        googleAccessTokenExpiry,
+      } = user;
+      const tokenData = await getValidGoogleAccessToken(
+        googleClientId,
+        googleClientSecret,
+        googleRefreshTokenEnc,
+        googleAccessTokenExpiry,
+        file.userId,
+      );
+      const updatedToken = await UserModel.findByIdAndUpdate(file.userId, {
+        googleAccessToken: tokenData.accessToken,
+        googleAccessTokenExpiry: tokenData.expiryDate
+          ? new Date(tokenData.expiryDate)
+          : new Date(Date.now() + 3500 * 1000),
+      });
+      if (!updatedToken) {
+        return errorHandler(res, "Error while updating access token");
+      }
+    }
+
     const result = await retryUploadService(jobId as string);
 
     return successHandler(res, result.message, result);
@@ -346,7 +407,7 @@ export const retryUploadController = async (req: Request, res: Response) => {
   }
 };
 
-export const uploadFilesController = async (req: Request, res: Response) => {
+export const getUploadFilesController = async (req: Request, res: Response) => {
   try {
     const page = Math.max(Number(req.query.page) || 1, 1);
     const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
@@ -572,6 +633,76 @@ export const updateUserAccess = async (req: Request, res: Response) => {
   }
 };
 
+export const getAudioFromPlatforms = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { _id, platform } = req.params;
+    if (!_id) return errorHandler(res, "userId is required");
+    if (!platform) return errorHandler(res, "Platform is required");
+
+    const user = await UserModel.findById(_id);
+    if (!user) return errorHandler(res, "User not found");
+
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+
+    const [files, failedFiles] = await Promise.all([
+      FileModel.find(
+        { userId: _id, platform },
+        {
+          _id: 1,
+          fileName: 1,
+          platform: 1,
+          createdAt: 1,
+        },
+      )
+        .sort({ createdAt: -1 })
+        .lean(),
+
+      UploadJobModel.find(
+        { userId: _id, platform },
+        {
+          _id: 1,
+          storageKey: 1,
+          platform: 1,
+          createdAt: 1,
+          lastError: "$lastError.message",
+        },
+      )
+        .sort({ createdAt: -1 })
+        .lean(),
+    ]);
+
+    const result = [
+      ...files.map((file) => ({
+        id: file._id,
+        fileName: file.fileName,
+        audioUrl: `${baseUrl}/api/files/${file._id}/stream`,
+        success: true,
+        createdAt: file.createdAt,
+      })),
+
+      ...failedFiles.map((file) => ({
+        id: file._id,
+        fileName: file.storageKey,
+        audioUrl: `${baseUrl}/api/files/${file._id}/stream`,
+        success: false,
+        lastError: file.lastError,
+        createdAt: file.createdAt,
+      })),
+    ].sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+    const response = result.map(({ createdAt, ...item }) => item);
+    return successHandler(res, "Audio received successfully", response);
+  } catch (error) {
+    return errorHandler(res, (error as Error).message);
+  }
+};
+
 export const getAllAudio = async (
   req: Request,
   res: Response,
@@ -752,7 +883,6 @@ export const deleteUser = async (req: Request, res: Response) => {
       dropboxSecretKey,
       dropboxAppKey,
     } = user;
-    console.log("user: ", user);
 
     let tokenData: any;
     if (isDrive) {

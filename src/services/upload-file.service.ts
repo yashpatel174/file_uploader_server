@@ -1,4 +1,5 @@
 import { FileModel } from "../models/file.model";
+import { UploadJobModel } from "../models/uploadJob.model";
 import { IPlatform } from "../utils/fileUpload";
 
 interface UploadFilesParams {
@@ -51,60 +52,66 @@ export const uploadFilesService = async ({
 
   const skip = (page - 1) * limit;
 
-  const [files, total] = await Promise.all([
-    FileModel.aggregate([
-      { $match: match },
-      { $sort: { createdAt: -1 } },
-      { $skip: skip },
-      { $limit: limit },
-      {
-        $lookup: {
-          from: "uploadjobs",
-          localField: "_id",
-          foreignField: "uploadedFileId",
-          as: "uploadJob",
-        },
+  const uploaded = await FileModel.aggregate([
+    {
+      $lookup: {
+        from: "users",
+        localField: "userId",
+        foreignField: "_id",
+        as: "user",
       },
-      {
-        $unwind: { path: "$uploadJob", preserveNullAndEmptyArrays: true },
+    },
+    {
+      $unwind: "$user",
+    },
+    {
+      $project: {
+        _id: 0,
+        userId: 1,
+        userName: "$user.userName",
+        platform: 1,
       },
-      {
-        $lookup: {
-          from: "users",
-          localField: "userId",
-          foreignField: "_id",
-          as: "user",
-        },
-      },
-      {
-        $unwind: "$user",
-      },
-      {
-        $project: {
-          _id: 1,
-          fileName: 1,
-          platform: 1,
-          remotePath: 1,
-          remoteFileId: 1,
-          sizeBytes: 1,
-          timeDuration: 1,
-          createdAt: 1,
-
-          "user._id": 1,
-          "user.userName": 1,
-          "user.email": 1,
-
-          uploadStatus: "$uploadJob.status",
-          uploadJobId: "$uploadJob.jobId",
-          attemptCount: "$uploadJob.attemptCount",
-        },
-      },
-    ]),
-    FileModel.countDocuments(match),
+    },
   ]);
 
+  const failed = await UploadJobModel.aggregate([
+    {
+      $match: {
+        status: "failed",
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "userId",
+        foreignField: "_id",
+        as: "user",
+      },
+    },
+    {
+      $unwind: "$user",
+    },
+    {
+      $project: {
+        _id: 0,
+        userId: 1,
+        userName: "$user.userName",
+        platform: 1,
+      },
+    },
+  ]);
+  const result = Array.from(
+    new Map(
+      [...uploaded, ...failed]
+        .sort((a, b) => a.platform.localeCompare(b.platform))
+        .map((item) => [`${item.userName}-${item.platform}`, item]),
+    ).values(),
+  );
+
+  const total = result.length;
+
   return {
-    data: files,
+    data: result,
     pagination: {
       total,
       page,
