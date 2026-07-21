@@ -11,7 +11,7 @@ import { privateKey, publicKey } from "../config/keys/auth_config";
 import { AuthRequest } from "../middleware/authMiddleware";
 import { FileModel } from "../models/file.model";
 import { TokenModel } from "../models/token.model";
-import { UploadJobModel } from "../models/uploadJob.model";
+import { Platform, PLATFORMS, UploadJobModel } from "../models/uploadJob.model";
 import { UserModel } from "../models/user.model";
 import { deleteFileByPlatform, DeleteFilePayload } from "../services/common";
 import { dropboxAccess, refreshDropboxToken } from "../services/dropbox";
@@ -283,7 +283,8 @@ export const uploadFileController = async (req: Request, res: Response) => {
     if (!file) return errorHandler(res, "File is required");
     if (!platform) return errorHandler(res, "File upload location is required");
 
-    let dbPopulation = "role email userName";
+    let dbPopulation =
+      "role email userName consumedTimePercent consumedSizePercent";
     if (platform === "drive") {
       dbPopulation +=
         "googleClientId googleClientSecret googleAccessToken role email userName";
@@ -642,6 +643,12 @@ export const getAudioFromPlatforms = async (
     if (!_id) return errorHandler(res, "userId is required");
     if (!platform) return errorHandler(res, "Platform is required");
 
+    if (!PLATFORMS.includes(platform as Platform)) {
+      return errorHandler(res, "Invalid platform");
+    }
+
+    type IPlatform = "sftp" | "ftp" | "dropbox" | "drive";
+
     const user = await UserModel.findById(_id);
     if (!user) return errorHandler(res, "User not found");
 
@@ -649,7 +656,7 @@ export const getAudioFromPlatforms = async (
 
     const [files, failedFiles] = await Promise.all([
       FileModel.find(
-        { userId: _id, platform },
+        { userId: _id, platform: platform as IPlatform },
         {
           _id: 1,
           fileName: 1,
@@ -661,13 +668,13 @@ export const getAudioFromPlatforms = async (
         .lean(),
 
       UploadJobModel.find(
-        { userId: _id, platform },
+        { userId: _id, platform: platform as IPlatform },
         {
           _id: 1,
           storageKey: 1,
           platform: 1,
           createdAt: 1,
-          lastError: "$lastError.message",
+          "lastError.message": 1,
         },
       )
         .sort({ createdAt: -1 })
@@ -688,7 +695,7 @@ export const getAudioFromPlatforms = async (
         fileName: file.storageKey,
         audioUrl: `${baseUrl}/api/files/${file._id}/stream`,
         success: false,
-        lastError: file.lastError,
+        lastError: file!.lastError!.message,
         createdAt: file.createdAt,
       })),
     ].sort(
@@ -925,6 +932,7 @@ export const deleteUser = async (req: Request, res: Response) => {
       session.startTransaction();
       await FileModel.deleteMany({ userId: _id }, { session });
       await UserModel.findByIdAndDelete(_id, { session });
+      await UploadJobModel.deleteMany({ userId: _id }, { session });
       await session.commitTransaction();
     } catch (error) {
       await session.abortTransaction();

@@ -8,6 +8,8 @@ import {
   uploadFileService,
 } from "../utils/fileUpload";
 import { buildStorageKey } from "../utils/storageKey";
+import { sendQuotaNotification } from "../utils/quotation";
+import { unitComparison } from "../utils/unitComparison";
 
 export const createUploadJobService = async ({
   user,
@@ -58,6 +60,20 @@ export const createUploadJobService = async ({
       lastError: classified,
       attempts: [],
     });
+
+    const toMail = unitComparison(0, 100);
+
+    if (toMail.isMail && toMail.value) {
+      await sendQuotaNotification({
+        email: user.email,
+        userName: user.userName,
+        threshold: toMail.value,
+        unit,
+      }).catch((error) => {
+        console.log("Quota email failed: ", (error as Error).message);
+        throw new Error("Quota email failed");
+      });
+    }
 
     throw {
       error: classified.message,

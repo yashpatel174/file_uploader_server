@@ -14,9 +14,11 @@ export const getQuotaNotificationTemplate = (
           ? "Warning"
           : "Alert";
 
+  const resource = unit === "size" ? "storage" : "usage time";
+
   const subject = `${severity}: ${threshold}% ${
     unit === "size" ? "Storage" : "Usage Time"
-  } Limit Reached`;
+  } Limit ${threshold === 100 ? "Reached" : "Used"}`;
 
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
@@ -25,16 +27,24 @@ export const getQuotaNotificationTemplate = (
       <p>Hello ${userName},</p>
 
       <p>
-        Your ${
-          unit === "size" ? "storage" : "usage time"
-        } consumption has reached
+        Your ${resource} consumption has reached
         <strong>${threshold}%</strong> of the allocated limit.
       </p>
 
+      ${
+        threshold < 100
+          ? `
       <p>
-        Once the limit reaches <strong>100%</strong>,
-        new uploads or operations may be blocked.
+        Once your usage reaches <strong>100%</strong>, new uploads and other
+        operations may be blocked.
       </p>
+      `
+          : `
+      <p>
+        You have exceeded your allocated ${resource} limit.
+      </p>
+      `
+      }
 
       <p>
         Please review your usage and take any necessary action.
