@@ -50,8 +50,6 @@ export const uploadFilesService = async ({
     }
   }
 
-  const skip = (page - 1) * limit;
-
   const uploaded = await FileModel.aggregate([
     {
       $lookup: {

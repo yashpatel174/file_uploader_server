@@ -57,16 +57,6 @@ export const deleteFromFTP = async (remotePath: string): Promise<void> => {
     await client.remove(remotePath);
   } catch (e) {
     throw new Error(classifyUploadError(e).message);
-    const message = (e as Error).message ?? "";
-
-    if (
-      message.includes("550") ||
-      message.toLowerCase().includes("not found")
-    ) {
-      return;
-    }
-
-    console.error("FTP cleanup failed:", message);
   } finally {
     client.close();
   }

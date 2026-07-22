@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { google } from "googleapis";
-import { Types } from "mongoose";
 import { UserModel } from "../../models/user.model";
 import { classifyCloudError } from "../../utils/classify-api-error";
 import { errorHandler, successHandler } from "../../utils/responseHandler";
@@ -65,7 +64,6 @@ export const connectGoogle = async (req: Request, res: Response) => {
   } catch (error) {
     const classified = classifyCloudError("google", error);
     return errorHandler(res, classified.message);
-    // return errorHandler(res, (error as Error).message);
   }
 };
 
@@ -74,7 +72,6 @@ export const getValidGoogleAccessToken = async (
   googleClientSecret: string,
   googleRefreshToken: string,
   accessTokenExpiry: Date,
-  _id: Types.ObjectId,
 ) => {
   try {
     const oauth2Client = new google.auth.OAuth2(
@@ -101,22 +98,6 @@ export const getValidGoogleAccessToken = async (
     };
   } catch (error) {
     const classified = classifyCloudError("google", error);
-    if (classified.httpStatus === 401 || classified.httpStatus === 400) {
-      await UserModel.findByIdAndUpdate(
-        _id,
-        {
-          $set: {
-            googleClientId: null,
-            googleClientSecret: null,
-            googleAccessToken: null,
-            googleRefreshTokenEnc: null,
-            googleAccessTokenExpiry: null,
-            googleAuthenticated: false,
-          },
-        },
-        { returnDocuments: "after" },
-      );
-    }
-    throw classifyCloudError("google", error);
+    throw new Error(classified.message);
   }
 };

@@ -367,7 +367,6 @@ export const retryUploadController = async (req: Request, res: Response) => {
         dropboxRefreshToken,
         dropboxAppKey!,
         dropboxSecretKey!,
-        file.userId,
       );
       const updatedToken = await UserModel.findByIdAndUpdate(file.userId, {
         dropboxAccessToken: accessToken!,
@@ -387,7 +386,6 @@ export const retryUploadController = async (req: Request, res: Response) => {
         googleClientSecret,
         googleRefreshTokenEnc,
         googleAccessTokenExpiry,
-        file.userId,
       );
       const updatedToken = await UserModel.findByIdAndUpdate(file.userId, {
         googleAccessToken: tokenData.accessToken,
@@ -778,7 +776,6 @@ export const getAudioAccess = async (req: Request, res: Response) => {
         googleClientSecret,
         googleRefreshTokenEnc,
         googleAccessTokenExpiry,
-        userId ? userId : getFile.userId,
       );
 
       await getDriveAccess(
@@ -796,7 +793,6 @@ export const getAudioAccess = async (req: Request, res: Response) => {
         dropboxRefreshToken,
         dropboxAppKey!,
         dropboxSecretKey!,
-        userId,
       );
       await dropboxAccess(accessToken, remoteFileId, res as Response);
     }
@@ -898,7 +894,6 @@ export const deleteUser = async (req: Request, res: Response) => {
         googleClientSecret,
         googleRefreshTokenEnc,
         googleAccessTokenExpiry,
-        user._id,
       );
     }
 
@@ -914,7 +909,6 @@ export const deleteUser = async (req: Request, res: Response) => {
           refreshToken: isDropbox ? dropboxRefreshToken! : "",
           appKey: isDropbox ? dropboxAppKey! : "",
           appSecret: isDropbox ? dropboxSecretKey! : "",
-          userId: user._id,
         });
       }),
     );
@@ -969,7 +963,6 @@ export const authConnection = async (req: Request, res: Response) => {
         dropboxRefreshToken,
         dropboxAppKey!,
         dropboxSecretKey!,
-        user._id,
       );
       const updatedToken = await UserModel.findByIdAndUpdate(_id, {
         dropboxAccessToken: accessToken!,
@@ -994,7 +987,6 @@ export const authConnection = async (req: Request, res: Response) => {
         googleClientSecret,
         googleRefreshTokenEnc,
         googleAccessTokenExpiry,
-        user._id,
       );
       const updatedToken = await UserModel.findByIdAndUpdate(_id, {
         googleAccessToken: tokenData.accessToken,
