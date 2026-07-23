@@ -29,6 +29,9 @@ import {
   successHandler,
 } from "../utils/responseHandler";
 import { hashToken } from "../utils/token";
+import { ClientSession } from "mongoose";
+import { emailPrompt } from "../utils/quotation";
+import { sendMail } from "../config/nodeMailer";
 
 export const createAdmin = async (req: Request, res: Response) => {
   try {
@@ -466,6 +469,36 @@ export const getAllUsers = async (req: Request, res: Response) => {
     }
 
     const userIds = users.map((user) => new Types.ObjectId(user._id));
+    interface IReports {
+      userId: string;
+      unit: string;
+      actualLimit: number;
+      jobId: string;
+    }
+
+    const failReports: IReports[] = [];
+
+    for (const user of users ?? []) {
+      const reports = await UploadJobModel.find(
+        { userId: user._id },
+        {
+          jobId: 1,
+          unit: 1,
+          sizeBytes: 1,
+          timeDuration: 1,
+        },
+      ).lean();
+
+      for (const report of reports) {
+        failReports.push({
+          userId: user._id.toString(),
+          unit: report.unit,
+          actualLimit:
+            report.unit === "size" ? report.sizeBytes : report.timeDuration,
+          jobId: report.jobId,
+        });
+      }
+    }
 
     const fileCounts = await FileModel.aggregate([
       {
@@ -530,6 +563,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
 
     return successHandler(res, "Users fetched successfully", {
       transformedUsers,
+      failReports,
       pagination: {
         total,
         page,
@@ -546,7 +580,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
 export const updateUserAccess = async (req: Request, res: Response) => {
   try {
     const { _id } = req.params;
-    const { unit, newValue } = req.body;
+    const { unit, newValue, isReset, isMail, jobId, emailPayload } = req.body;
     if (!unit) return errorHandler(res, "Data unit is required");
 
     if (!isValidStorageSize(newValue)) {
@@ -562,68 +596,117 @@ export const updateUserAccess = async (req: Request, res: Response) => {
       );
     }
 
-    const updatedUser = await UserModel.findByIdAndUpdate(
-      _id,
-      [
+    const session = await mongoose.startSession();
+    let updatedUser;
+    try {
+      updatedUser = await UserModel.findByIdAndUpdate(
+        _id,
+        [
+          {
+            $set:
+              unit === "size"
+                ? {
+                    totalSizeBytes: newValue,
+                    unit,
+                    consumedSizePercent: {
+                      $round: [
+                        {
+                          $cond: [
+                            { $gt: [newValue, 0] },
+                            {
+                              $multiply: [
+                                {
+                                  $divide: ["$consumeSizeBytes", newValue],
+                                },
+                                100,
+                              ],
+                            },
+                            0,
+                          ],
+                        },
+                        2,
+                      ],
+                    },
+                  }
+                : {
+                    totalTime: newValue,
+                    unit,
+                    consumedTimePercent: {
+                      $round: [
+                        {
+                          $cond: [
+                            { $gt: [newValue, 0] },
+                            {
+                              $multiply: [
+                                {
+                                  $divide: ["$consumedTime", newValue],
+                                },
+                                100,
+                              ],
+                            },
+                            0,
+                          ],
+                        },
+                        2,
+                      ],
+                    },
+                  },
+          },
+        ],
         {
-          $set:
-            unit === "size"
-              ? {
-                  totalSizeBytes: newValue,
-                  unit,
-                  consumedSizePercent: {
-                    $round: [
-                      {
-                        $cond: [
-                          { $gt: [newValue, 0] },
-                          {
-                            $multiply: [
-                              {
-                                $divide: ["$consumeSizeBytes", newValue],
-                              },
-                              100,
-                            ],
-                          },
-                          0,
-                        ],
-                      },
-                      2,
-                    ],
-                  },
-                }
-              : {
-                  totalTime: newValue,
-                  unit,
-                  consumedTimePercent: {
-                    $round: [
-                      {
-                        $cond: [
-                          { $gt: [newValue, 0] },
-                          {
-                            $multiply: [
-                              {
-                                $divide: ["$consumedTime", newValue],
-                              },
-                              100,
-                            ],
-                          },
-                          0,
-                        ],
-                      },
-                      2,
-                    ],
-                  },
-                },
+          returnDocument: "after",
+          updatePipeline: true,
+          runValidators: true,
+          session,
         },
-      ],
-      {
-        returnDocument: "after",
-        updatePipeline: true,
-        runValidators: true,
-      },
-    );
-    if (!updatedUser) {
-      return errorHandler(res, "Error while updating the data.");
+      );
+      if (!updatedUser) {
+        return errorHandler(res, "Error while updating the data.");
+      }
+      if (jobId && isReset === true) {
+        await UploadJobModel.findOneAndUpdate(
+          { jobId },
+          { status: "failed", attempts: [], attemptCount: 0, retryable: true },
+          { session },
+        );
+      }
+    } catch (error) {
+      await session.abortTransaction();
+    } finally {
+      session.endSession();
+    }
+
+    if (isMail) {
+      const { total, used, updated } = emailPayload;
+      if (unit === "size") {
+        if (total === "") errorHandler(res, "Total Size is required");
+        if (used === "") errorHandler(res, "Utilized Size is required");
+        if (updated === "") errorHandler(res, "New Size is required");
+      } else if (unit === "time") {
+        if (total === "") errorHandler(res, "Total Time is required");
+        if (used === "") errorHandler(res, "Utilized Time is required");
+        if (updated === "") errorHandler(res, "New Time is required");
+      }
+
+      const title =
+        unit === "size"
+          ? "Storage Limit Has Been Increased"
+          : "Audio Duration Limit Has Been Increased";
+      const summaryTitle =
+        unit === "size" ? "Storage Summary" : "Audio Duration Summary";
+      const emailMsg = emailPrompt(
+        title,
+        summaryTitle,
+        total,
+        used,
+        updated,
+      );
+
+      await sendMail({
+        to: user.email,
+        subject: summaryTitle,
+        html: emailMsg,
+      });
     }
 
     return successHandler(res, "User data updated successfully", updatedUser);

@@ -1,5 +1,6 @@
 import { Document, model, Schema, Types } from "mongoose";
 import { randomUUID } from "node:crypto";
+import { UnitInterface } from "./user.model";
 
 export const UPLOAD_STATUS = [
   "queued",
@@ -48,6 +49,7 @@ export interface IUploadJob extends Document {
   jobId: string;
   userId: Types.ObjectId;
   platform: Platform;
+  unit: UnitInterface;
   originalFileName: string;
   localFilePath: string;
   storageKey: string;
@@ -115,6 +117,7 @@ const uploadJobSchema = new Schema<IUploadJob>(
       required: true,
       index: true,
     },
+    unit: { type: String, enum: ["size", "time"], required: true },
     originalFileName: {
       type: String,
       required: true,

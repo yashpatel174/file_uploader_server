@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { UploadJobModel } from "../models/uploadJob.model";
-import { UserModel } from "../models/user.model";
+import { UnitInterface, UserModel } from "../models/user.model";
 import { classifyUploadError } from "../utils/classify-upload-error";
 import {
   getAudioDuration,
@@ -21,7 +21,7 @@ export const createUploadJobService = async ({
   user: any;
   userId: string;
   uploadSource: Express.Multer.File;
-  unit: "size" | "time";
+  unit: UnitInterface;
   platform: IPlatform;
 }) => {
   const storageKey = buildStorageKey(user.userName, uploadSource.originalname);
@@ -48,6 +48,7 @@ export const createUploadJobService = async ({
     const uploadJob = await UploadJobModel.create({
       userId,
       platform,
+      unit,
       originalFileName: uploadSource.originalname,
       storageKey,
       mimeType: uploadSource.mimetype,
@@ -91,7 +92,7 @@ export const getFailedUploadsService = async ({
 }) => {
   const skip = (page - 1) * limit;
 
-  const [jobs, total] = await Promise.all([
+  const [result, total] = await Promise.all([
     UploadJobModel.find(
       {
         status: "failed",
@@ -104,6 +105,9 @@ export const getFailedUploadsService = async ({
         jobId: 1,
         _id: 0,
         retryable: 1,
+        unit: 1,
+        sizeBytes: 1,
+        timeDuration: 1,
       },
     )
       .populate({
@@ -121,6 +125,15 @@ export const getFailedUploadsService = async ({
       status: "failed",
     }),
   ]);
+
+  const jobs =
+    result.length &&
+    result.map((r) => {
+      return {
+        ...r,
+        limit: r.unit === "size" ? r.sizeBytes : r.timeDuration,
+      };
+    });
 
   return {
     jobs,
