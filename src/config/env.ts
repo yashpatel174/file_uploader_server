@@ -21,4 +21,5 @@ export const ENV = {
   email_user: process.env.SMTP_USER as string,
   email_password: process.env.SMTP_PASSWORD as string,
   smtp_from: process.env.SMTP_FROM as string,
+  rabbitmq_url: process.env.RABBITMQ_URL as string,
 };

@@ -10,6 +10,7 @@ import {
 import { buildStorageKey } from "../utils/storageKey";
 import { sendQuotaNotification } from "../utils/quotation";
 import { unitComparison } from "../utils/unitComparison";
+import { FileModel } from "../models/file.model";
 
 export const createUploadJobService = async ({
   user,
@@ -285,4 +286,34 @@ export const retryUploadService = async (jobId: string) => {
 
     throw error;
   }
+};
+
+export const createFileModel = async ({
+  userName,
+  userId,
+  platform,
+  durationInSeconds,
+  fileSizeBytes,
+  file,
+}: {
+  userName: string;
+  userId: string;
+  platform: "ftp" | "sftp" | "dropbox" | "drive";
+  durationInSeconds: number;
+  fileSizeBytes: number;
+  file: Express.Multer.File;
+}) => {
+  const fileName = buildStorageKey(userName, file.originalname);
+  return await FileModel.create({
+    userId: userId,
+    platform,
+    status: "queued",
+    fileName,
+    localFilePath: file.path,
+    mimeType: file.mimetype,
+    sizeBytes: fileSizeBytes,
+    timeDuration: durationInSeconds,
+    attemptCount: 0,
+    maxAttempts: 5,
+  });
 };

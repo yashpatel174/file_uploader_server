@@ -1,8 +1,9 @@
 import fs from "fs";
 import { parseFile } from "music-metadata";
+import path from "path";
 import { ENV } from "../config/env";
 import { FileModel } from "../models/file.model";
-import { UserModel } from "../models/user.model";
+import { IConnector, UserModel } from "../models/user.model";
 import { uploadFileToCloud } from "../services/cloud-upload.service";
 import { deleteFromDropbox, dropbox_platform } from "../services/dropbox";
 import { deleteFromFTP } from "../services/ftp";
@@ -151,7 +152,7 @@ export const uploadFileService = async ({
             2,
           ],
         },
-
+        connector: platform,
         unit,
       },
     },
@@ -239,6 +240,9 @@ export const uploadFileService = async ({
       userId,
       fileName,
       platform,
+      localFilePath: uploadSource.path,
+      mimeType: uploadSource.mimetype,
+      status: "uploaded",
       remoteFileId: fileData.remoteFileId,
       remotePath: fileData.remotePath,
       ...(unit === "time"
@@ -308,7 +312,6 @@ export const uploadFileService = async ({
         console.error("Cloud cleanup failed:", (cleanupError as Error).message);
       }
     }
-
     throw err;
   } finally {
     if (!storageKey) {
@@ -331,5 +334,124 @@ export const convertBytes = (bytes: number): ConvertedSize => {
     kb: `${(bytes / 1024).toFixed(2)} KB`,
     mb: `${(bytes / 1024 ** 2).toFixed(2)} MB`,
     gb: `${(bytes / 1024 ** 3).toFixed(2)} GB`,
+  };
+};
+
+export const metaDataValidation = async ({
+  userId,
+  uploadSource,
+  unit,
+  connector,
+}: {
+  userId: string;
+  uploadSource: Express.Multer.File[];
+  unit: "size" | "time";
+  connector: IConnector;
+}) => {
+  const metadata = await Promise.all(
+    uploadSource.map(async (file) => {
+      if (!allowedMimeTypes.has(file.mimetype)) {
+        throw new Error(`${file.originalname} is not a supported audio format`);
+      }
+
+      const { durationInSeconds } = await getAudioDuration(file.path);
+
+      return {
+        file,
+        durationInSeconds,
+        fileSizeBytes: file.size,
+        storageKey: buildStorageKey(
+          path.parse(file.originalname).name,
+          file.originalname,
+        ),
+      };
+    }),
+  );
+
+  const totalDuration = metadata.reduce(
+    (sum, item) => sum + item.durationInSeconds,
+    0,
+  );
+  const totalSize = metadata.reduce((sum, item) => sum + item.fileSizeBytes, 0);
+  const incrementValue = unit === "time" ? totalDuration : totalSize;
+  const consumedField = unit === "time" ? "$consumedTime" : "$consumeSizeBytes";
+  const totalField = unit === "time" ? "$totalTime" : "$totalSizeBytes";
+  const percentField =
+    unit === "time" ? "consumedTimePercent" : "consumedSizePercent";
+
+  const beforeUser = await UserModel.findById(userId)
+    .select(percentField)
+    .lean();
+
+  const updatePipeline = [
+    {
+      $set: {
+        [consumedField.slice(1)]: {
+          $add: [consumedField, incrementValue],
+        },
+
+        [percentField]: {
+          $round: [
+            {
+              $cond: [
+                { $gt: [totalField, 0] },
+                {
+                  $multiply: [
+                    {
+                      $divide: [
+                        {
+                          $add: [consumedField, incrementValue],
+                        },
+                        totalField,
+                      ],
+                    },
+                    100,
+                  ],
+                },
+                0,
+              ],
+            },
+            2,
+          ],
+        },
+        connector,
+        unit,
+      },
+    },
+  ];
+
+  const user = await UserModel.findOneAndUpdate(
+    {
+      _id: userId,
+      $expr: {
+        $gte: [
+          {
+            $subtract: [totalField, consumedField],
+          },
+          incrementValue,
+        ],
+      },
+    },
+    updatePipeline,
+    {
+      returnDocument: "after",
+      updatePipeline: true,
+    },
+  );
+
+  if (!user) {
+    throw new Error(`Your allocated ${unit} quota has been exceeded`);
+  }
+
+  const beforePercent =
+    unit === "time"
+      ? (beforeUser?.consumedTimePercent ?? 0)
+      : (beforeUser?.consumedSizePercent ?? 0);
+
+  return {
+    totalDuration,
+    totalSize,
+    metadata,
+    toMail: unitComparison(beforePercent, user[percentField]),
   };
 };

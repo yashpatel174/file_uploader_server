@@ -5,6 +5,8 @@ import multer from "multer";
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), "uploads");
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+export const MAX_FILES = 10;
+
 const dirCreationCache = new Map<string, Promise<void>>();
 
 const sanitizeFileName = (fileName: string) => {
@@ -64,7 +66,7 @@ export const upload = multer({
   storage,
   limits: {
     fileSize: MAX_FILE_SIZE_BYTES,
-    files: 1,
+    files: MAX_FILES,
     fields: 10,
   },
 });

@@ -1,7 +1,9 @@
 import { Document, Schema, model } from "mongoose";
+import { PLATFORMS } from "./uploadJob.model";
 
 export type UserRole = "admin" | "user";
 export type UnitInterface = "size" | "time";
+export type IConnector = "sftp" | "ftp" | "dropbox" | "drive";
 
 export interface IUser extends Document {
   email: string;
@@ -10,6 +12,7 @@ export interface IUser extends Document {
   isActive: boolean;
   role: UserRole;
   unit: UnitInterface;
+  connector: IConnector;
   consumedTimePercent: number;
   consumedSizePercent: number;
   totalSizeBytes: number;
@@ -48,6 +51,11 @@ const userSchema = new Schema<IUser>(
       enum: ["admin", "user"],
       required: true,
       index: true,
+    },
+    connector: {
+      type: String,
+      enum: PLATFORMS,
+      default: "sftp",
     },
     unit: { type: String, enum: ["size", "time"], required: true },
     consumedTimePercent: { type: Number, required: true, default: 0 },

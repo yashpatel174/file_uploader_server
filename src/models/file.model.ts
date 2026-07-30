@@ -1,13 +1,22 @@
 import { Document, Schema, Types, model } from "mongoose";
+import { randomUUID } from "node:crypto";
+import { UPLOAD_STATUS, UploadStatus } from "./uploadJob.model";
 
 export interface IFile extends Document {
   userId: Types.ObjectId;
+  storageKey: string;
+  status: UploadStatus;
+  publishStatus: "pending" | "published";
   platform: "dropbox" | "drive" | "ftp" | "sftp";
   fileName: string;
   remoteFileId: string | null;
   remotePath: string;
+  localFilePath: string;
+  mimeType: string;
   sizeBytes: number;
   timeDuration: number;
+  attemptCount: number;
+  maxAttempts: number;
   createdAt: Date;
 }
 
@@ -17,6 +26,24 @@ const fileSchema = new Schema<IFile>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
+    },
+    storageKey: {
+      type: String,
+      default: () => randomUUID(),
+      immutable: true,
+      unique: true,
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: UPLOAD_STATUS,
+      required: true,
+    },
+    publishStatus: {
+      type: String,
+      enum: ["pending", "published"],
+      default: "pending",
       index: true,
     },
     platform: {
@@ -29,6 +56,8 @@ const fileSchema = new Schema<IFile>(
       type: String,
       required: true,
     },
+    localFilePath: { type: String, required: true },
+    mimeType: { type: String, required: true },
     remoteFileId: {
       type: String,
       default: null,
@@ -37,6 +66,7 @@ const fileSchema = new Schema<IFile>(
     remotePath: {
       type: String,
       required: true,
+      default: "Pending",
     },
     sizeBytes: {
       type: Number,
@@ -44,6 +74,8 @@ const fileSchema = new Schema<IFile>(
     timeDuration: {
       type: Number,
     },
+    attemptCount: { type: Number, default: 0 },
+    maxAttempts: { type: Number, default: 5 },
   },
   { timestamps: true },
 );

@@ -18,20 +18,21 @@ import { dropboxAccess, refreshDropboxToken } from "../services/dropbox";
 import { getDriveAccess } from "../services/google";
 import { uploadFilesService } from "../services/upload-file.service";
 import {
+  createFileModel,
   createUploadJobService,
   getFailedUploadsService,
   retryUploadService,
 } from "../services/upload-job.service";
-import { IPlatform } from "../utils/fileUpload";
+import { IPlatform, metaDataValidation } from "../utils/fileUpload";
 import {
   errorHandler,
   isValidStorageSize,
   successHandler,
 } from "../utils/responseHandler";
 import { hashToken } from "../utils/token";
-import { ClientSession } from "mongoose";
 import { emailPrompt } from "../utils/quotation";
 import { sendMail } from "../config/nodeMailer";
+import { publishUploadJob } from "../queues/producer";
 
 export const createAdmin = async (req: Request, res: Response) => {
   try {
@@ -246,6 +247,7 @@ export const createUser = async (req: Request, res: Response) => {
         totalSizeBytes,
         unit,
         email,
+        connector: "sftp",
         consumedTimePercent: 0,
         consumedSizePercent: 0,
       });
@@ -450,6 +452,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
           consumedTime: 1,
           unit: 1,
           email: 1,
+          connector: 1,
           consumedTimePercent: 1,
           consumedSizePercent: 1,
           googleAuthenticated: 1,
@@ -530,6 +533,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
         unit: user.unit,
         googleAuthenticated: user.googleAuthenticated,
         dropboxAuthenticated: user.dropboxAuthenticated,
+        connector: user.connector,
         size: {
           total: totalBytes,
           consumed: consumedBytes,
@@ -545,6 +549,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
         userName: user.userName,
         email: user.email,
         unit: user.unit,
+        connector: user.connector,
         size: {
           total: totalBytes,
           consumed: consumedBytes,
@@ -694,13 +699,7 @@ export const updateUserAccess = async (req: Request, res: Response) => {
           : "Audio Duration Limit Has Been Increased";
       const summaryTitle =
         unit === "size" ? "Storage Summary" : "Audio Duration Summary";
-      const emailMsg = emailPrompt(
-        title,
-        summaryTitle,
-        total,
-        used,
-        updated,
-      );
+      const emailMsg = emailPrompt(title, summaryTitle, total, used, updated);
 
       await sendMail({
         to: user.email,
@@ -1019,6 +1018,73 @@ export const deleteUser = async (req: Request, res: Response) => {
     }
 
     return successHandler(res, "User deleted successfully");
+  } catch (error) {
+    return errorHandler(res, (error as Error).message);
+  }
+};
+
+export const multipleFileUpload = async (req: Request, res: Response) => {
+  try {
+    const { _id } = req.params;
+    const { connector } = req.body;
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+      errorHandler(res, "Files are required");
+    }
+
+    if (!_id) return errorHandler(res, "UserId is required");
+    if (!connector) return errorHandler(res, "Connector is required");
+
+    const user = await UserModel.findById(_id, {
+      userName: 1,
+      email: 1,
+      dropboxAccessToken: 1,
+      googleClientId: 1,
+      googleClientSecret: 1,
+      googleAccessToken: 1,
+      unit: 1,
+    })
+      .lean()
+      .exec();
+    if (!user) return errorHandler(res, "User not found");
+
+    const metadata = await metaDataValidation({
+      userId: String(_id),
+      uploadSource: files as Express.Multer.File[],
+      unit: user.unit,
+      connector,
+    });
+
+    for (const item of metadata.metadata) {
+      const job = await createFileModel({
+        userName: user.userName,
+        userId: String(_id),
+        platform: connector,
+        durationInSeconds: item.durationInSeconds,
+        fileSizeBytes: item.fileSizeBytes,
+        file: item.file,
+      });
+
+      await publishUploadJob(job._id);
+
+      await FileModel.updateOne(
+        {
+          _id: job._id,
+        },
+        {
+          $set: {
+            publishStatus: "published",
+          },
+        },
+      );
+    }
+
+    return successHandler(
+      res,
+      "Files are cueued successfully",
+      metadata.metadata,
+    );
   } catch (error) {
     return errorHandler(res, (error as Error).message);
   }
