@@ -1,4 +1,5 @@
 import { UploadJobModel } from "../models/uploadJob.model";
+import { UserModel } from "../models/user.model";
 import { classifyUploadError } from "../utils/classify-upload-error";
 import { getAudioDuration, IPlatform, UploadSource } from "../utils/fileUpload";
 import { sendQuotaNotification } from "../utils/quotation";
@@ -45,6 +46,12 @@ export const handleUploadFailure = async ({
     attempts: [],
   });
 
+  await UserModel.findOneAndUpdate(
+    { _id: userId },
+    { $set: { isDeleting: true } },
+    { returnDocument: "after" },
+  );
+
   const toMail = unitComparison(0, 100);
 
   if (toMail.isMail && toMail.value) {
@@ -60,5 +67,8 @@ export const handleUploadFailure = async ({
     }
   }
 
-  return uploadJob;
+  return {
+    error: classified.message,
+    jobId: uploadJob.jobId,
+  };
 };

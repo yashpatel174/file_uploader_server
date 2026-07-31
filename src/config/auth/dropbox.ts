@@ -32,10 +32,7 @@ export const dropboxExchangeToken = async (req: Request, res: Response) => {
     const { code, appKey, appSecret, _id } = req.body;
 
     if (!code || !appKey || !appSecret) {
-      return res.status(400).json({
-        success: false,
-        message: "code, appKey and appSecret are required",
-      });
+      return errorHandler(res, "code, appKey and appSecret are required");
     }
 
     const response = await axios.post(

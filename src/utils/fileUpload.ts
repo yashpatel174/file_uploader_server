@@ -49,7 +49,7 @@ export interface IAudioMetadata {
   formattedDuration: string;
 }
 
-const removeUploadedFile = async (filePath: string) => {
+export const removeUploadedFile = async (filePath: string) => {
   try {
     await fs.promises.unlink(filePath);
   } catch (error) {
@@ -154,6 +154,7 @@ export const uploadFileService = async ({
         },
         connector: platform,
         unit,
+        isDeleting: false,
       },
     },
   ];
@@ -199,17 +200,17 @@ export const uploadFileService = async ({
   let remoteFileId: string | null = null;
   let remotePath: string | null = null;
 
-  const finalStorageKey =
+  const modifiedFileName =
     storageKey ?? buildStorageKey(user.userName, uploadSource.originalname);
 
   try {
     let data: UploadResult;
     switch (platform) {
       case "drive":
-        data = await google_drive(user, uploadSource, finalStorageKey);
+        data = await google_drive(user, uploadSource, modifiedFileName);
         break;
       case "dropbox":
-        data = await dropbox_platform(user, uploadSource, finalStorageKey);
+        data = await dropbox_platform(user, uploadSource, modifiedFileName);
         break;
       default:
         let port = 0;
@@ -221,7 +222,7 @@ export const uploadFileService = async ({
         data = await uploadFileToCloud(
           platform,
           uploadSource.path,
-          `/Audio/${finalStorageKey}`,
+          `/Audio/${modifiedFileName}`,
           {
             host: ENV.sftp_host,
             port: port as number,
@@ -281,6 +282,7 @@ export const uploadFileService = async ({
       { _id: userId },
       {
         $inc: inc,
+        isDeleting: true,
       },
     );
 
@@ -338,15 +340,9 @@ export const convertBytes = (bytes: number): ConvertedSize => {
 };
 
 export const metaDataValidation = async ({
-  userId,
   uploadSource,
-  unit,
-  connector,
 }: {
-  userId: string;
   uploadSource: Express.Multer.File[];
-  unit: "size" | "time";
-  connector: IConnector;
 }) => {
   const metadata = await Promise.all(
     uploadSource.map(async (file) => {
@@ -368,90 +364,7 @@ export const metaDataValidation = async ({
     }),
   );
 
-  const totalDuration = metadata.reduce(
-    (sum, item) => sum + item.durationInSeconds,
-    0,
-  );
-  const totalSize = metadata.reduce((sum, item) => sum + item.fileSizeBytes, 0);
-  const incrementValue = unit === "time" ? totalDuration : totalSize;
-  const consumedField = unit === "time" ? "$consumedTime" : "$consumeSizeBytes";
-  const totalField = unit === "time" ? "$totalTime" : "$totalSizeBytes";
-  const percentField =
-    unit === "time" ? "consumedTimePercent" : "consumedSizePercent";
-
-  const beforeUser = await UserModel.findById(userId)
-    .select(percentField)
-    .lean();
-
-  const updatePipeline = [
-    {
-      $set: {
-        [consumedField.slice(1)]: {
-          $add: [consumedField, incrementValue],
-        },
-
-        [percentField]: {
-          $round: [
-            {
-              $cond: [
-                { $gt: [totalField, 0] },
-                {
-                  $multiply: [
-                    {
-                      $divide: [
-                        {
-                          $add: [consumedField, incrementValue],
-                        },
-                        totalField,
-                      ],
-                    },
-                    100,
-                  ],
-                },
-                0,
-              ],
-            },
-            2,
-          ],
-        },
-        connector,
-        unit,
-      },
-    },
-  ];
-
-  const user = await UserModel.findOneAndUpdate(
-    {
-      _id: userId,
-      $expr: {
-        $gte: [
-          {
-            $subtract: [totalField, consumedField],
-          },
-          incrementValue,
-        ],
-      },
-    },
-    updatePipeline,
-    {
-      returnDocument: "after",
-      updatePipeline: true,
-    },
-  );
-
-  if (!user) {
-    throw new Error(`Your allocated ${unit} quota has been exceeded`);
-  }
-
-  const beforePercent =
-    unit === "time"
-      ? (beforeUser?.consumedTimePercent ?? 0)
-      : (beforeUser?.consumedSizePercent ?? 0);
-
   return {
-    totalDuration,
-    totalSize,
     metadata,
-    toMail: unitComparison(beforePercent, user[percentField]),
   };
 };

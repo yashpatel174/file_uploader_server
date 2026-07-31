@@ -8,11 +8,13 @@ import { PassThrough } from "stream";
 import { getValidGoogleAccessToken } from "../config/auth/google";
 import { ENV } from "../config/env";
 import { privateKey, publicKey } from "../config/keys/auth_config";
+import { sendMail } from "../config/nodeMailer";
 import { AuthRequest } from "../middleware/authMiddleware";
 import { FileModel } from "../models/file.model";
 import { TokenModel } from "../models/token.model";
 import { Platform, PLATFORMS, UploadJobModel } from "../models/uploadJob.model";
 import { UserModel } from "../models/user.model";
+import { publishUploadJob } from "../queues/producer";
 import { deleteFileByPlatform, DeleteFilePayload } from "../services/common";
 import { dropboxAccess, refreshDropboxToken } from "../services/dropbox";
 import { getDriveAccess } from "../services/google";
@@ -23,16 +25,16 @@ import {
   getFailedUploadsService,
   retryUploadService,
 } from "../services/upload-job.service";
+import { handleUploadFailure } from "../services/uploadFailure.service";
 import { IPlatform, metaDataValidation } from "../utils/fileUpload";
+import { emailPrompt } from "../utils/quotation";
 import {
   errorHandler,
   isValidStorageSize,
   successHandler,
 } from "../utils/responseHandler";
+import { buildStorageKey } from "../utils/storageKey";
 import { hashToken } from "../utils/token";
-import { emailPrompt } from "../utils/quotation";
-import { sendMail } from "../config/nodeMailer";
-import { publishUploadJob } from "../queues/producer";
 
 export const createAdmin = async (req: Request, res: Response) => {
   try {
@@ -289,7 +291,7 @@ export const uploadFileController = async (req: Request, res: Response) => {
     if (!platform) return errorHandler(res, "File upload location is required");
 
     let dbPopulation =
-      "role email userName consumedTimePercent consumedSizePercent";
+      "role email userName consumedTimePercent consumedSizePercent unit";
     if (platform === "drive") {
       dbPopulation +=
         "googleClientId googleClientSecret googleAccessToken role email userName";
@@ -921,12 +923,7 @@ export const deleteUser = async (req: Request, res: Response) => {
 
     const files = await FileModel.find(
       { userId: _id },
-      {
-        platform: 1,
-        remoteFileId: 1,
-        remotePath: 1,
-        _id: 0,
-      },
+      { platform: 1, remoteFileId: 1, remotePath: 1, _id: 0 },
     );
 
     const selectFields: string[] = [];
@@ -1050,33 +1047,63 @@ export const multipleFileUpload = async (req: Request, res: Response) => {
     if (!user) return errorHandler(res, "User not found");
 
     const metadata = await metaDataValidation({
-      userId: String(_id),
       uploadSource: files as Express.Multer.File[],
-      unit: user.unit,
-      connector,
     });
 
+    const failedUploads: {
+      fileName: string;
+      error: string;
+    }[] = [];
+
     for (const item of metadata.metadata) {
-      const job = await createFileModel({
-        userName: user.userName,
-        userId: String(_id),
-        platform: connector,
-        durationInSeconds: item.durationInSeconds,
-        fileSizeBytes: item.fileSizeBytes,
-        file: item.file,
-      });
+      const fileName = buildStorageKey(user.userName, item.file.originalname);
+      try {
+        const job = await createFileModel({
+          fileName,
+          userId: String(_id),
+          platform: connector,
+          durationInSeconds: item.durationInSeconds,
+          fileSizeBytes: item.fileSizeBytes,
+          file: item.file,
+          unit: user.unit,
+        });
+        if (!job) return errorHandler(res, "File is not stored in database");
+        await publishUploadJob(job._id);
 
-      await publishUploadJob(job._id);
-
-      await FileModel.updateOne(
-        {
-          _id: job._id,
-        },
-        {
-          $set: {
-            publishStatus: "published",
+        await FileModel.updateOne(
+          {
+            _id: job._id,
           },
-        },
+          {
+            $set: {
+              publishStatus: "published",
+            },
+          },
+        );
+      } catch (error) {
+        const errorData = await handleUploadFailure({
+          error,
+          user,
+          userId: String(_id),
+          uploadSource: item.file,
+          unit: user.unit,
+          platform: connector,
+          storageKey: fileName,
+        });
+
+        failedUploads.push({
+          fileName: item.file.originalname,
+          error: errorData.error as string,
+        });
+
+        continue;
+      }
+    }
+
+    if (failedUploads.length > 0) {
+      return errorHandler(
+        res,
+        failedUploads[-1]?.error ?? "Some files failed to upload.",
       );
     }
 

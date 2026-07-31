@@ -89,6 +89,12 @@ export const processUpload = async ({
       },
     );
 
+    await UserModel.findOneAndUpdate(
+      { _id: userId },
+      { $set: { isDeleting: true } },
+      { returnDocument: "after" },
+    );
+
     await fs.unlink(uploadSource.path);
 
     return uploaded;

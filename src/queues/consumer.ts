@@ -1,11 +1,10 @@
 import { getChannel } from "../config/rabbitmq";
-import { QUEUES } from "./queueNames";
-import { processUpload } from "../workers/upload.worker";
-import { UserModel } from "../models/user.model";
 import { FileModel } from "../models/file.model";
-import { setupQueues } from "./queues";
+import { UserModel } from "../models/user.model";
+import { processUpload } from "../workers/upload.worker";
 import { publishRetryJob } from "./producer";
-import { buildStorageKey } from "../utils/storageKey";
+import { QUEUES } from "./queueNames";
+import { setupQueues } from "./queues";
 
 export const startConsumer = async () => {
   const channel = getChannel();
@@ -43,7 +42,11 @@ export const startConsumer = async () => {
         return;
       }
 
-      const user = await UserModel.findById(job.userId)
+      const user = await UserModel.findOneAndUpdate(
+        { _id: job.userId },
+        { $set: { isDeleting: false } },
+        { returnDocument: "after" },
+      )
         .select({
           userName: 1,
           email: 1,

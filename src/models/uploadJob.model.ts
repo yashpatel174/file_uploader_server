@@ -29,7 +29,7 @@ export const FAILURE_TYPES = [
 
 export type FailureType = (typeof FAILURE_TYPES)[number];
 
-interface IUploadAttempt {
+export interface IUploadAttempt {
   attemptNo: number;
   startedAt: Date;
   endedAt?: Date;
@@ -38,7 +38,7 @@ interface IUploadAttempt {
   errorMessage?: string;
 }
 
-interface ILastError {
+export interface ILastError {
   code?: string;
   message?: string;
   provider?: string;
