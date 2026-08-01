@@ -46,12 +46,6 @@ export const handleUploadFailure = async ({
     attempts: [],
   });
 
-  await UserModel.findOneAndUpdate(
-    { _id: userId },
-    { $set: { isDeleting: true } },
-    { returnDocument: "after" },
-  );
-
   const toMail = unitComparison(0, 100);
 
   if (toMail.isMail && toMail.value) {

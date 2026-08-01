@@ -21,7 +21,7 @@ import {
   userLogout,
 } from "../controller/fileUploader";
 import { authenticate, authorize } from "../middleware/authMiddleware";
-import { upload } from "../middleware/multer";
+import { upload, uploadMultipleFiles } from "../middleware/multer";
 const router = Router();
 
 router.get("/admin/create", createAdmin);
@@ -45,7 +45,7 @@ router.post(
   "/upload/:_id/multiple-files",
   authenticate,
   authorize("admin"),
-  upload.array("files", 10),
+  uploadMultipleFiles,
   multipleFileUpload,
 );
 router.get("/upload/failed", getFailedUploadsController);

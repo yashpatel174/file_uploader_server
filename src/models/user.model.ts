@@ -10,7 +10,6 @@ export interface IUser extends Document {
   userName: string;
   password: string;
   isActive: boolean;
-  isDeleting: boolean;
   role: UserRole;
   unit: UnitInterface;
   connector: IConnector;
@@ -47,7 +46,6 @@ const userSchema = new Schema<IUser>(
     },
     password: { type: String, trim: true, select: false },
     isActive: { type: Boolean, required: true, default: false },
-    isDeleting: { type: Boolean, required: true, default: false },
     role: {
       type: String,
       enum: ["admin", "user"],

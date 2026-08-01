@@ -921,6 +921,17 @@ export const deleteUser = async (req: Request, res: Response) => {
     const { _id } = req.params;
     if (!_id) return errorHandler(res, "User ID is required");
 
+    const inProcessFiles = await FileModel.countDocuments({
+      userId: _id,
+      isDeleted: false,
+    });
+    if (inProcessFiles > 0) {
+      return errorHandler(
+        res,
+        "A file upload is already in progress for this user",
+      );
+    }
+
     const files = await FileModel.find(
       { userId: _id },
       { platform: 1, remoteFileId: 1, remotePath: 1, _id: 0 },
@@ -1023,7 +1034,7 @@ export const deleteUser = async (req: Request, res: Response) => {
 export const multipleFileUpload = async (req: Request, res: Response) => {
   try {
     const { _id } = req.params;
-    const { connector } = req.body;
+    const { connector, unit } = req.body;
     const files = req.files;
 
     if (!files || files.length === 0) {
@@ -1031,6 +1042,7 @@ export const multipleFileUpload = async (req: Request, res: Response) => {
     }
 
     if (!_id) return errorHandler(res, "UserId is required");
+    if (!unit) return errorHandler(res, "File Unit is required");
     if (!connector) return errorHandler(res, "Connector is required");
 
     const user = await UserModel.findById(_id, {
@@ -1065,7 +1077,7 @@ export const multipleFileUpload = async (req: Request, res: Response) => {
           durationInSeconds: item.durationInSeconds,
           fileSizeBytes: item.fileSizeBytes,
           file: item.file,
-          unit: user.unit,
+          unit,
         });
         if (!job) return errorHandler(res, "File is not stored in database");
         await publishUploadJob(job._id);
@@ -1086,7 +1098,7 @@ export const multipleFileUpload = async (req: Request, res: Response) => {
           user,
           userId: String(_id),
           uploadSource: item.file,
-          unit: user.unit,
+          unit,
           platform: connector,
           storageKey: fileName,
         });
@@ -1103,7 +1115,8 @@ export const multipleFileUpload = async (req: Request, res: Response) => {
     if (failedUploads.length > 0) {
       return errorHandler(
         res,
-        failedUploads[-1]?.error ?? "Some files failed to upload.",
+        failedUploads[failedUploads.length - 1]?.error ??
+          "Some files failed to upload.",
       );
     }
 

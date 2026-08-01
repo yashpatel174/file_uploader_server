@@ -2,6 +2,8 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import multer from "multer";
+import { errorHandler } from "../utils/responseHandler";
+import type { Request, Response, NextFunction } from "express";
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), "uploads");
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
@@ -70,3 +72,30 @@ export const upload = multer({
     fields: 10,
   },
 });
+
+export const uploadMultipleFiles = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  upload.array("files", MAX_FILES)(req, res, (err) => {
+    if (!err) {
+      return next();
+    }
+
+    if (err instanceof multer.MulterError) {
+      switch (err.code) {
+        case "LIMIT_FILE_COUNT":
+          return errorHandler(res, `Maximum ${MAX_FILES} files are allowed.`);
+
+        case "LIMIT_UNEXPECTED_FILE":
+          return errorHandler(res, "Unexpected file field.");
+
+        default:
+          return errorHandler(res, err.message);
+      }
+    }
+
+    return next(err);
+  });
+};

@@ -19,11 +19,6 @@ app.use("/uploads", express.static(UPLOADS_DIR));
 
 app.use("/", routes);
 
-// connectDB();
-
-// connectRabbitMQ();
-// startConsumer();
-
 const bootstrap = async () => {
   try {
     await connectDB();
@@ -41,6 +36,3 @@ const bootstrap = async () => {
 };
 
 void bootstrap();
-
-// const port = process.env.PORT;
-// app.listen(port, () => console.log(`Server running on port: ${port}`));

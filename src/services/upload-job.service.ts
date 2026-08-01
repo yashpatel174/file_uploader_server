@@ -41,7 +41,7 @@ export const createUploadJobService = async ({
       user,
       userId,
       uploadSource,
-      unit: user.unit,
+      unit,
       platform,
       storageKey,
     });

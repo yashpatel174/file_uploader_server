@@ -17,6 +17,7 @@ export interface IFile extends Document {
   timeDuration: number;
   attemptCount: number;
   maxAttempts: number;
+  isDeleted: boolean;
   createdAt: Date;
 }
 
@@ -74,6 +75,7 @@ const fileSchema = new Schema<IFile>(
     timeDuration: {
       type: Number,
     },
+    isDeleted: { type: Boolean, required: true, default: true },
     attemptCount: { type: Number, default: 0 },
     maxAttempts: { type: Number, default: 5 },
   },
@@ -82,6 +84,7 @@ const fileSchema = new Schema<IFile>(
 
 // Index for user file lookup
 fileSchema.index({ userId: 1, createdAt: -1 });
+fileSchema.index({ userId: 1, isDeleted: 1 });
 fileSchema.index({ platform: 1, remoteFileId: 1 });
 fileSchema.index({ platform: 1, remotePath: 1 });
 

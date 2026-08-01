@@ -154,7 +154,6 @@ export const uploadFileService = async ({
         },
         connector: platform,
         unit,
-        isDeleting: false,
       },
     },
   ];
@@ -282,7 +281,6 @@ export const uploadFileService = async ({
       { _id: userId },
       {
         $inc: inc,
-        isDeleting: true,
       },
     );
 

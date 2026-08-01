@@ -86,13 +86,8 @@ export const processUpload = async ({
         remoteFileId,
         remotePath,
         status: "uploaded",
+        isDeleted: true,
       },
-    );
-
-    await UserModel.findOneAndUpdate(
-      { _id: userId },
-      { $set: { isDeleting: true } },
-      { returnDocument: "after" },
     );
 
     await fs.unlink(uploadSource.path);

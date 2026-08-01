@@ -25,6 +25,7 @@ export const startConsumer = async () => {
         {
           $set: {
             status: "processing",
+            isDeleted: false,
           },
           $inc: {
             attemptCount: 1,
@@ -44,7 +45,6 @@ export const startConsumer = async () => {
 
       const user = await UserModel.findOneAndUpdate(
         { _id: job.userId },
-        { $set: { isDeleting: false } },
         { returnDocument: "after" },
       )
         .select({
