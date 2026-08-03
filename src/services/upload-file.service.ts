@@ -1,3 +1,4 @@
+import { NativeBuffer, PipelineStage } from "mongoose";
 import { FileModel } from "../models/file.model";
 import { UploadJobModel } from "../models/uploadJob.model";
 import { IPlatform } from "../utils/fileUpload";
@@ -50,7 +51,9 @@ export const uploadFilesService = async ({
     }
   }
 
-  const uploaded = await FileModel.aggregate([
+  const skip = (page - 1) * limit;
+
+  const pipeline: PipelineStage[] = [
     {
       $lookup: {
         from: "users",
@@ -59,9 +62,7 @@ export const uploadFilesService = async ({
         as: "user",
       },
     },
-    {
-      $unwind: "$user",
-    },
+    { $unwind: "$user" },
     {
       $project: {
         _id: 0,
@@ -70,46 +71,61 @@ export const uploadFilesService = async ({
         platform: 1,
       },
     },
-  ]);
+    {
+      $unionWith: {
+        coll: "uploadjobs",
+        pipeline: [
+          {
+            $match: {
+              status: "failed",
+            },
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "userId",
+              foreignField: "_id",
+              as: "user",
+            },
+          },
+          { $unwind: "$user" },
+          {
+            $project: {
+              _id: 0,
+              userId: 1,
+              userName: "$user.userName",
+              platform: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $group: {
+        _id: {
+          userName: "$userName",
+          platform: "$platform",
+        },
+        doc: { $first: "$$ROOT" },
+      },
+    },
+    { $replaceRoot: { newRoot: "$doc" } },
+    { $sort: { platform: 1 } },
+    {
+      $facet: {
+        data: [{ $skip: skip }, { $limit: limit }],
+        total: [{ $count: "count" }],
+      },
+    },
+  ];
 
-  const failed = await UploadJobModel.aggregate([
-    {
-      $match: {
-        status: "failed",
-      },
-    },
-    {
-      $lookup: {
-        from: "users",
-        localField: "userId",
-        foreignField: "_id",
-        as: "user",
-      },
-    },
-    {
-      $unwind: "$user",
-    },
-    {
-      $project: {
-        _id: 0,
-        userId: 1,
-        userName: "$user.userName",
-        platform: 1,
-      },
-    },
-  ]);
-  const result = Array.from(
-    new Map(
-      [...uploaded, ...failed]
-        .sort((a, b) => a.platform.localeCompare(b.platform))
-        .map((item) => [`${item.userName}-${item.platform}`, item]),
-    ).values(),
-  );
+  const [result] = await FileModel.aggregate(pipeline);
 
-  const total = result.length;
+  const data = result.data;
+  const total = result.total[0]?.count ?? 0;
 
   return {
-    data: result,
+    data,
     pagination: {
       total,
       page,

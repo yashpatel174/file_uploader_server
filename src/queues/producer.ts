@@ -10,14 +10,8 @@ export const publishUploadJob = async (jobId: Types.ObjectId) => {
   await new Promise<void>((resolve, reject) => {
     channel.sendToQueue(
       QUEUES.FILE_UPLOAD,
-      Buffer.from(
-        JSON.stringify({
-          jobId: jobId.toString(),
-        }),
-      ),
-      {
-        persistent: true,
-      },
+      Buffer.from(JSON.stringify({ jobId: jobId.toString() })),
+      { persistent: true },
       (error) => {
         if (error) {
           reject(error);
@@ -37,13 +31,7 @@ export const publishRetryJob = async (jobId: Types.ObjectId | string) => {
 
   channel.sendToQueue(
     QUEUES.FILE_UPLOAD_RETRY,
-    Buffer.from(
-      JSON.stringify({
-        jobId: jobId.toString(),
-      }),
-    ),
-    {
-      persistent: true,
-    },
+    Buffer.from(JSON.stringify({ jobId: jobId.toString() })),
+    { persistent: true },
   );
 };

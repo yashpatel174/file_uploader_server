@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import path from "node:path";
 import { connectDB } from "./config/db";
-import routes from "./routes/csv.routes";
+import routes from "./routes/common.route";
 import { connectRabbitMQ } from "./config/rabbitmq";
 import { startConsumer } from "./queues/consumer";
 const app = express();
